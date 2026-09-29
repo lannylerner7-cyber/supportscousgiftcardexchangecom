@@ -37,6 +37,21 @@ export const requestOtp = createServerFn({ method: "POST" })
     const { sendEmail, otpEmail, emailConfigured } = await import("./email.server");
 
     const email = data.email.trim().toLowerCase();
+
+    // Admin accounts never get a login code: the daily mail allowance is
+    // reserved for members, and the password already opened their session.
+    const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
+    if (adminEmail && adminEmail === email) {
+      return {
+        ok: true as const,
+        adminBypass: true as const,
+        delivered: false,
+        emailConfigured: emailConfigured(),
+        expiresAt: null,
+        ttlMinutes: OTP_TTL_MIN,
+      };
+    }
+
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
 
@@ -93,6 +108,7 @@ export const requestOtp = createServerFn({ method: "POST" })
 
     return {
       ok: true as const,
+      adminBypass: false as const,
       delivered: result.sent,
       emailConfigured: emailConfigured(),
       expiresAt: expires.toISOString(),

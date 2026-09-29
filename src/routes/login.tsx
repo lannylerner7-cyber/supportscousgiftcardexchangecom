@@ -76,10 +76,11 @@ function Login() {
     const otp = await requestOtp({ data: { email, purpose: "login" } });
     setBusy(false);
 
-    // A code is outstanding whenever mail is working - including when the
-    // request was refused because one was just sent. Only a mailbox we cannot
-    // reach at all lets the member straight in.
-    const skipCode = otp.ok && !otp.delivered && !otp.emailConfigured;
+    // Admins never get a code - the mail allowance is reserved for members.
+    // Otherwise a code is outstanding whenever mail is working; only a
+    // mailbox we cannot reach at all lets the member straight in.
+    const skipCode =
+      otp.ok && (otp.adminBypass || (!otp.delivered && !otp.emailConfigured));
     if (!skipCode) {
       markOtpPending(email);
       void navigate({
