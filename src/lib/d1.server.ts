@@ -143,7 +143,8 @@ export function literal(value: unknown): string {
   }
   if (value instanceof Date) return `'${value.toISOString()}'`;
   const text = typeof value === "object" ? JSON.stringify(value) : String(value);
-  return `'${text.replace(/'/g, "''")}'`;
+  // SQLite ends a string at a NUL byte, which would break the statement.
+  return `'${text.replace(/\u0000/g, "").replace(/'/g, "''")}'`;
 }
 
 /* ------------------------------------------------------------------ money */
