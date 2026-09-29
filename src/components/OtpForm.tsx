@@ -86,7 +86,7 @@ export function OtpForm({
     }
     setCooldown(60);
     setCode("");
-    setDeadline(new Date(res.expiresAt).getTime());
+    if (res.expiresAt) setDeadline(new Date(res.expiresAt).getTime());
     toast.success("New code sent.");
   }
 
