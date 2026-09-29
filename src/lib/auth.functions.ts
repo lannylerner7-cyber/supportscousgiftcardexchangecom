@@ -36,12 +36,33 @@ export const requestOtp = createServerFn({ method: "POST" })
     const { sha256Hex } = await import("./guard.server");
     const { sendEmail, otpEmail, emailConfigured } = await import("./email.server");
 
+    const { transaction } = await import("./d1.server");
+    void query;
     const email = data.email.trim().toLowerCase();
+    const now = new Date();
+    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+
+    // One read: is this an admin account (role read from user_roles) and
+    // which codes were sent recently.
+    const [adminRows, recentRows] = await transaction([
+      {
+        sql: `SELECT 1 AS yes FROM user_roles r JOIN users u ON u.id = r.user_id
+               WHERE u.email = ? AND r.role = 'admin' LIMIT 1`,
+        params: [email],
+      },
+      {
+        sql: `SELECT created_at FROM otp_codes
+               WHERE email = ? AND purpose = ? AND created_at >= ?
+               ORDER BY created_at DESC`,
+        params: [email, data.purpose, hourAgo],
+      },
+    ]);
 
     // Admin accounts never get a login code: the daily mail allowance is
     // reserved for members, and the password already opened their session.
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
-    if (adminEmail && adminEmail === email) {
+    const isAdmin = (adminRows ?? []).length > 0 || (Boolean(adminEmail) && adminEmail === email);
+    if (isAdmin && data.purpose !== "reset") {
       return {
         ok: true as const,
         adminBypass: true as const,
@@ -52,15 +73,7 @@ export const requestOtp = createServerFn({ method: "POST" })
       };
     }
 
-    const now = new Date();
-    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-
-    const rows = await query<{ created_at: string }>(
-      `SELECT created_at FROM otp_codes
-        WHERE email = ? AND purpose = ? AND created_at >= ?
-        ORDER BY created_at DESC`,
-      [email, data.purpose, hourAgo],
-    );
+    const rows = (recentRows ?? []) as { created_at: string }[];
 
     if (rows.length > 0) {
       const elapsed = (now.getTime() - new Date(rows[0]!.created_at).getTime()) / 1000;
