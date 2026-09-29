@@ -46,7 +46,8 @@ function Signup() {
     }
     setBusy(true);
     const email = form.email.trim().toLowerCase();
-    const created = await signUp({
+    // One request: account, profile, wallet, roles and the emailed code.
+    const created = await registerAccount({
       data: {
         email,
         password: form.password,
@@ -58,13 +59,18 @@ function Signup() {
 
     if (!created.ok) {
       setBusy(false);
-      toast.error("That email already has an account. Try logging in.");
+      if (created.error === "exists") {
+        toast.error("That email already has an account. Try logging in.");
+      } else if (created.error === "cooldown") {
+        toast.error(`Please wait ${created.retryIn ?? 60}s before trying again.`);
+      } else {
+        toast.error("Too many attempts for this email. Try again later.");
+      }
       return;
     }
     await refreshAccount();
 
-    const done = await completeSignup({ data: { email, fullName: form.fullName.trim() } });
-    if (done.verifiedWithoutEmail) {
+    if (created.verifiedWithoutEmail) {
       clearOtpPending();
       setBusy(false);
       toast.success("Account created. Welcome aboard!");
@@ -72,12 +78,11 @@ function Signup() {
       return;
     }
 
-    const otp = await requestOtp({ data: { email, purpose: "signup" } });
-    if (!(otp.ok && !otp.delivered && !otp.emailConfigured)) markOtpPending(email);
+    markOtpPending(email);
     setBusy(false);
     void navigate({
       to: "/verify-email",
-      search: { email, ...(otp.ok ? { exp: otp.expiresAt } : {}) },
+      search: { email, ...(created.expiresAt ? { exp: created.expiresAt } : {}) },
     });
   }
 
