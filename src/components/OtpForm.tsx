@@ -35,10 +35,13 @@ export function OtpForm({
   const [deadline, setDeadline] = useState<number | null>(
     expiresAt ? new Date(expiresAt).getTime() : null,
   );
-  const [now, setNow] = useState(() => Date.now());
+  // Clock starts after the page loads in the browser, so the server-rendered
+  // page and the browser agree on the first paint.
+  const [now, setNow] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
@@ -50,7 +53,7 @@ export function OtpForm({
   }, [cooldown]);
 
   const left = useMemo(
-    () => (deadline ? Math.max(0, Math.round((deadline - now) / 1000)) : null),
+    () => (deadline && now !== null ? Math.max(0, Math.round((deadline - now) / 1000)) : null),
     [deadline, now],
   );
   const expired = left !== null && left === 0;

@@ -46,44 +46,51 @@ function Signup() {
     }
     setBusy(true);
     const email = form.email.trim().toLowerCase();
-    // One request: account, profile, wallet, roles and the emailed code.
-    const created = await registerAccount({
-      data: {
-        email,
-        password: form.password,
-        fullName: form.fullName.trim(),
-        phone: form.phone.trim(),
-        ...(form.referralCode.trim() ? { referralCode: form.referralCode.trim().toUpperCase() } : {}),
-      },
-    });
+    try {
+      // One request: account, profile, wallet, roles and the emailed code.
+      const created = await registerAccount({
+        data: {
+          email,
+          password: form.password,
+          fullName: form.fullName.trim(),
+          phone: form.phone.trim(),
+          ...(form.referralCode.trim() ? { referralCode: form.referralCode.trim().toUpperCase() } : {}),
+        },
+      });
 
-    if (!created.ok) {
-      setBusy(false);
-      if (created.error === "exists") {
-        toast.error("That email already has an account. Try logging in.");
-      } else if (created.error === "cooldown") {
-        toast.error(`Please wait ${created.retryIn ?? 60}s before trying again.`);
-      } else {
-        toast.error("Too many attempts for this email. Try again later.");
+      if (!created.ok) {
+        if (created.error === "exists") {
+          toast.error("That email already has an account. Try logging in.");
+        } else if (created.error === "cooldown") {
+          toast.error(`Please wait ${created.retryIn ?? 60}s before trying again.`);
+        } else {
+          toast.error("Too many attempts for this email. Try again later.");
+        }
+        return;
       }
-      return;
-    }
-    await refreshAccount();
+      await refreshAccount();
 
-    if (created.verifiedWithoutEmail) {
-      clearOtpPending();
+      if (created.verifiedWithoutEmail) {
+        clearOtpPending();
+        toast.success("Account created. Welcome aboard!");
+        void navigate({ to: "/app" });
+        return;
+      }
+
+      markOtpPending(email);
+      if (!created.delivered) {
+        toast.message("Your code is on its way. If it doesn't arrive, tap “Send me a new code”.");
+      }
+      void navigate({
+        to: "/verify-email",
+        search: { email, ...(created.expiresAt ? { exp: created.expiresAt } : {}) },
+      });
+    } catch (err) {
+      console.error("Signup failed", err);
+      toast.error("We couldn't create your account right now. Please try again.");
+    } finally {
       setBusy(false);
-      toast.success("Account created. Welcome aboard!");
-      void navigate({ to: "/app" });
-      return;
     }
-
-    markOtpPending(email);
-    setBusy(false);
-    void navigate({
-      to: "/verify-email",
-      search: { email, ...(created.expiresAt ? { exp: created.expiresAt } : {}) },
-    });
   }
 
   return (

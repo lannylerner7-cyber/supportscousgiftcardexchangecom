@@ -1,11 +1,11 @@
 /**
  * Signup in one round trip.
  *
- * The browser makes a single call: `registerAccount` validates the form,
- * checks the email and the code rate limit in one database read, then writes
- * the account, profile, wallet, roles and the hashed verification code in one
- * all-or-nothing transaction. Only the verification-code email is sent while
- * the person waits; the welcome email goes out after they confirm the code.
+ * The browser makes a single call: `registerAccount` validates the form, then
+ * sends ONE database transaction that checks the email and the code rate
+ * limit and — only if they pass — writes the account, profile, wallet, roles
+ * and the hashed verification code. Only the verification-code email is sent
+ * while the person waits; the welcome email goes out after they confirm it.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -57,41 +57,8 @@ export const registerAccount = createServerFn({ method: "POST" })
     const referralCode = data.referralCode?.toUpperCase() ?? null;
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    const cooldownFrom = new Date(now.getTime() - OTP_RESEND_COOLDOWN_S * 1000).toISOString();
 
-    /* ---- one read: taken email + referrer + recent signup codes ---------- */
-    const reads = await transaction([
-      { sql: "SELECT id FROM users WHERE email = ? LIMIT 1", params: [email] },
-      {
-        sql: "SELECT id FROM profiles WHERE referral_code = ? LIMIT 1",
-        // Sentinel that no real code can match, so this read is always safe.
-        params: [referralCode ?? "__no_referral__"],
-      },
-      {
-        sql: `SELECT created_at FROM otp_codes
-                WHERE email = ? AND purpose = 'signup' AND created_at >= ?
-                ORDER BY created_at DESC`,
-        params: [email, hourAgo],
-      },
-    ]);
-
-    if ((reads[0] ?? []).length > 0) return { ok: false, error: "exists" };
-
-    const referrerId = referralCode
-      ? ((reads[1]?.[0]?.["id"] as string | undefined) ?? null)
-      : null;
-
-    const recent = (reads[2] ?? []) as { created_at: string }[];
-    if (recent.length > 0) {
-      const elapsed = (now.getTime() - new Date(recent[0]!.created_at).getTime()) / 1000;
-      if (elapsed < OTP_RESEND_COOLDOWN_S) {
-        return { ok: false, error: "cooldown", retryIn: Math.ceil(OTP_RESEND_COOLDOWN_S - elapsed) };
-      }
-    }
-    if (recent.length >= OTP_MAX_RESENDS_PER_HOUR) {
-      return { ok: false, error: "too_many", retryIn: 3600 };
-    }
-
-    /* ---- one write: account + profile + wallet + roles + code ------------ */
     const userId = newId();
     const iso = nowIso();
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
@@ -101,72 +68,114 @@ export const registerAccount = createServerFn({ method: "POST" })
     // Admin accounts never receive a verification code: they are verified
     // instantly so the daily mail allowance is reserved for members.
     const mailReady = emailConfigured() && !isAdmin;
-
     const code = mailReady ? sixDigitCode() : null;
     const expires = mailReady ? new Date(now.getTime() + OTP_TTL_MIN * 60 * 1000) : null;
 
+    const [passwordHash, codeHash] = await Promise.all([
+      hashPassword(data.password),
+      code ? sha256Hex(`${email}:${code}`) : Promise.resolve(null),
+    ]);
+
+    /*
+     * ONE database request. The first statement reads the rate/duplicate
+     * state; the account insert is guarded by the same conditions, and every
+     * later write only lands if that account row now exists. D1 runs the batch
+     * as a single all-or-nothing transaction.
+     */
+    const guard = `NOT EXISTS (SELECT 1 FROM users WHERE email = ?)
+      AND NOT EXISTS (SELECT 1 FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?)
+      AND (SELECT COUNT(*) FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?) < ?`;
+    const guardParams = [email, email, cooldownFrom, email, hourAgo, OTP_MAX_RESENDS_PER_HOUR];
+    const created = "EXISTS (SELECT 1 FROM users WHERE id = ?)";
+
     const statements: { sql: string; params?: unknown[] }[] = [
       {
-        sql: `INSERT INTO users (id, email, password_hash, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?)`,
-        params: [userId, email, await hashPassword(data.password), iso, iso],
+        sql: `SELECT
+                (SELECT COUNT(*) FROM users WHERE email = ?) AS taken,
+                (SELECT MAX(created_at) FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?) AS last_at,
+                (SELECT COUNT(*) FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?) AS recent`,
+        params: [email, email, hourAgo, email, hourAgo],
       },
       {
-        // No mail account connected yet: verify straight away so nobody is
-        // locked out of the account they just created.
+        sql: `INSERT INTO users (id, email, password_hash, created_at, updated_at)
+              SELECT ?, ?, ?, ?, ? WHERE ${guard}`,
+        params: [userId, email, passwordHash, iso, iso, ...guardParams],
+      },
+      {
+        // No mail account connected yet (or admin): verify straight away so
+        // nobody is locked out of the account they just created.
         sql: `INSERT INTO profiles (id, full_name, email, phone, referral_code, referred_by, is_verified, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              SELECT ?, ?, ?, ?, ?, (SELECT id FROM profiles WHERE referral_code = ? LIMIT 1), ?, ?, ?
+              WHERE ${created}`,
         params: [
           userId,
           data.fullName.trim(),
           email,
           data.phone.trim() || null,
           ownReferral,
-          referrerId,
+          referralCode,
           mailReady ? 0 : 1,
           iso,
           iso,
+          userId,
         ],
       },
       {
-        sql: `INSERT INTO wallets (id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-        params: [newId(), userId, iso, iso],
+        sql: `INSERT INTO wallets (id, user_id, created_at, updated_at)
+              SELECT ?, ?, ?, ? WHERE ${created}`,
+        params: [newId(), userId, iso, iso, userId],
       },
       {
-        sql: `INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, ?)`,
-        params: [newId(), userId, "user", iso],
+        sql: `INSERT INTO user_roles (id, user_id, role, created_at)
+              SELECT ?, ?, 'user', ? WHERE ${created}`,
+        params: [newId(), userId, iso, userId],
       },
     ];
 
     // The one account named in ADMIN_EMAIL also gets the admin role.
     if (isAdmin) {
       statements.push({
-        sql: `INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, ?)`,
-        params: [newId(), userId, "admin", iso],
+        sql: `INSERT INTO user_roles (id, user_id, role, created_at)
+              SELECT ?, ?, 'admin', ? WHERE ${created}`,
+        params: [newId(), userId, iso, userId],
       });
     }
 
-    if (code && expires) {
+    if (codeHash && expires) {
       statements.push({
         sql: `UPDATE otp_codes SET consumed_at = ?
-                WHERE email = ? AND purpose = 'signup' AND consumed_at IS NULL`,
-        params: [iso, email],
+                WHERE email = ? AND purpose = 'signup' AND consumed_at IS NULL AND ${created}`,
+        params: [iso, email, userId],
       });
       statements.push({
         sql: `INSERT INTO otp_codes (id, email, purpose, code_hash, expires_at, resend_count, created_at)
-              VALUES (?, ?, 'signup', ?, ?, ?, ?)`,
-        params: [
-          newId(),
-          email,
-          await sha256Hex(`${email}:${code}`),
-          expires.toISOString(),
-          recent.length,
-          iso,
-        ],
+              SELECT ?, ?, 'signup', ?, ?,
+                (SELECT COUNT(*) FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?), ?
+              WHERE ${created}`,
+        params: [newId(), email, codeHash, expires.toISOString(), email, hourAgo, iso, userId],
       });
     }
 
-    await transaction(statements);
+    statements.push({ sql: "SELECT id FROM users WHERE id = ?", params: [userId] });
+
+    const results = await transaction(statements);
+    const check = (results[0]?.[0] ?? {}) as { taken?: number; last_at?: string | null; recent?: number };
+    const wasCreated = (results[results.length - 1] ?? []).length > 0;
+
+    if (!wasCreated) {
+      if (Number(check.taken ?? 0) > 0) return { ok: false, error: "exists" };
+      if (check.last_at) {
+        const elapsed = (now.getTime() - new Date(check.last_at).getTime()) / 1000;
+        if (elapsed < OTP_RESEND_COOLDOWN_S) {
+          return { ok: false, error: "cooldown", retryIn: Math.ceil(OTP_RESEND_COOLDOWN_S - elapsed) };
+        }
+      }
+      if (Number(check.recent ?? 0) >= OTP_MAX_RESENDS_PER_HOUR) {
+        return { ok: false, error: "too_many", retryIn: 3600 };
+      }
+      throw new Error("Account could not be created");
+    }
+
     await startSession(userId, email);
 
     if (!code || !expires) {
@@ -181,19 +190,26 @@ export const registerAccount = createServerFn({ method: "POST" })
       };
     }
 
+    // Only the code email is awaited, and never for more than 10 seconds —
+    // a slow mail server must not leave the person staring at a spinner.
+    // They can always ask for a new code from the verify page.
     const mail = otpEmail(code, "signup", OTP_TTL_MIN);
-    const sent = await sendEmail({
-      to: email,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-    });
+    const sending = sendEmail({ to: email, subject: mail.subject, html: mail.html, text: mail.text })
+      .then((r) => r.sent)
+      .catch((e: unknown) => {
+        console.error("Signup code email failed:", e);
+        return false;
+      });
+    const delivered = await Promise.race([
+      sending,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10_000)),
+    ]);
 
     return {
       ok: true,
       userId,
       verifiedWithoutEmail: false,
-      delivered: sent.sent,
+      delivered,
       emailConfigured: true,
       expiresAt: expires.toISOString(),
       ttlMinutes: OTP_TTL_MIN,
