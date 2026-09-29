@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scousgiftcardexchange:latest
+    container_name: scousgiftcardexchange
+    restart: unless-stopped
+    # Put the live values in a .env file next to this one. See DEPLOY.md.
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3000}
+      HOST: 0.0.0.0
+      NODE_ENV: production
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:${PORT:-3000}/api/public/health | grep -q '\"ok\":true' || exit 1",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
