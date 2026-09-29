@@ -155,6 +155,22 @@ export const verifyOtpCode = createServerFn({ method: "POST" })
         nowIso(),
         email,
       ]);
+      // The welcome email is deliberately not awaited: signup and verification
+      // never wait on the mail server, and a mail failure can't fail the code.
+      void (async () => {
+        try {
+          const { sendEmail, welcomeEmail, emailConfigured } = await import("./email.server");
+          if (!emailConfigured()) return;
+          const who = await queryOne<{ full_name: string }>(
+            "SELECT full_name FROM profiles WHERE email = ? LIMIT 1",
+            [email],
+          );
+          const mail = welcomeEmail(who?.full_name ?? "");
+          await sendEmail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+        } catch (e) {
+          console.error("[email] welcome send failed", (e as Error).message);
+        }
+      })();
     }
 
     // A correct login code re-confirms the session that the password opened.
