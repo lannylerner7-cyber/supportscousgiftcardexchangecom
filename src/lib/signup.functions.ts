@@ -92,11 +92,15 @@ export const registerAccount = createServerFn({ method: "POST" })
     }
 
     /* ---- one write: account + profile + wallet + roles + code ------------ */
-    const mailReady = emailConfigured();
     const userId = newId();
     const iso = nowIso();
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
+    const isAdmin = Boolean(adminEmail) && adminEmail === email;
+
+    // Admin accounts never receive a verification code: they are verified
+    // instantly so the daily mail allowance is reserved for members.
+    const mailReady = emailConfigured() && !isAdmin;
 
     const code = mailReady ? sixDigitCode() : null;
     const expires = mailReady ? new Date(now.getTime() + OTP_TTL_MIN * 60 * 1000) : null;
@@ -135,7 +139,7 @@ export const registerAccount = createServerFn({ method: "POST" })
     ];
 
     // The one account named in ADMIN_EMAIL also gets the admin role.
-    if (adminEmail && adminEmail === email) {
+    if (isAdmin) {
       statements.push({
         sql: `INSERT INTO user_roles (id, user_id, role, created_at) VALUES (?, ?, ?, ?)`,
         params: [newId(), userId, "admin", iso],
