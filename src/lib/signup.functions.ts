@@ -63,7 +63,8 @@ export const registerAccount = createServerFn({ method: "POST" })
       { sql: "SELECT id FROM users WHERE email = ? LIMIT 1", params: [email] },
       {
         sql: "SELECT id FROM profiles WHERE referral_code = ? LIMIT 1",
-        params: [referralCode ?? "\u0000none"],
+        // Sentinel that no real code can match, so this read is always safe.
+        params: [referralCode ?? "__no_referral__"],
       },
       {
         sql: `SELECT created_at FROM otp_codes
