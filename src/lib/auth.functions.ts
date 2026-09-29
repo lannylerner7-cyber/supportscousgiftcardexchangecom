@@ -32,12 +32,10 @@ export const requestOtp = createServerFn({ method: "POST" })
     z.object({ email: z.string().email(), purpose: purposeSchema }).parse(d),
   )
   .handler(async ({ data }) => {
-    const { query, execute, newId, nowIso } = await import("./d1.server");
+    const { transaction, execute, newId, nowIso } = await import("./d1.server");
     const { sha256Hex } = await import("./guard.server");
     const { sendEmail, otpEmail, emailConfigured } = await import("./email.server");
 
-    const { transaction } = await import("./d1.server");
-    void query;
     const email = data.email.trim().toLowerCase();
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
