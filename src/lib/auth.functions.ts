@@ -8,17 +8,23 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import {
+  OTP_MAX_ATTEMPTS,
+  OTP_MAX_RESENDS_PER_HOUR,
+  OTP_RESEND_COOLDOWN_S,
+  OTP_TTL_MIN as TTL_MIN,
+  sixDigitCode,
+} from "./otp-policy";
+
 const purposeSchema = z.enum(["signup", "login", "reset", "pin"]);
 export type OtpPurpose = z.infer<typeof purposeSchema>;
 
-function sixDigits() {
-  return String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0");
-}
+const sixDigits = sixDigitCode;
 
-export const OTP_TTL_MIN = 5;
-const RESEND_COOLDOWN_S = 60;
-const MAX_RESENDS_PER_HOUR = 5;
-const MAX_ATTEMPTS = 3;
+export const OTP_TTL_MIN = TTL_MIN;
+const RESEND_COOLDOWN_S = OTP_RESEND_COOLDOWN_S;
+const MAX_RESENDS_PER_HOUR = OTP_MAX_RESENDS_PER_HOUR;
+const MAX_ATTEMPTS = OTP_MAX_ATTEMPTS;
 
 /** Issue a fresh code, invalidating any previous unused one. */
 export const requestOtp = createServerFn({ method: "POST" })
