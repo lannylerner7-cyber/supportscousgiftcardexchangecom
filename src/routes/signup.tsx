@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 
 import { Label } from "@/components/ui/label";
-import { completeSignup, requestOtp } from "@/lib/auth.functions";
-import { signUp } from "@/lib/account.functions";
+import { registerAccount } from "@/lib/signup.functions";
 import { useRefreshAccount } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/signup")({
