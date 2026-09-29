@@ -52,3 +52,5 @@ The OTP rate check (cooldown and hourly cap) is read together with the duplicate
 - `signUp` and `completeSignup` remain exported for any other caller, but the signup route stops using them.
 - Background email uses a non-awaited send with its own error logging, so a mail failure can never fail verification.
 - Existing rate-limit behaviour, lockouts and reset flows are untouched.
+
+And let config our D1 DB and also smtp" and verify admin login info and make sure everything intact while mentain our guideline without depreciate nothing and improve as we analyze 
