@@ -66,6 +66,7 @@ export const registerAccount = createServerFn({ method: "POST" })
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
     const isAdmin = Boolean(adminEmail) && adminEmail === email;
+    const signupBonus = isAdmin ? 0 : SIGNUP_BONUS_KOBO;
 
     // Admin accounts never receive a verification code: they are verified
     // instantly so the daily mail allowance is reserved for members.
