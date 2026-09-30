@@ -22,10 +22,14 @@ function sessionConfig() {
     password,
     name: COOKIE_NAME,
     maxAge: MAX_AGE_S,
+    // "none" + partitioned so the sign-in survives when the site is shown
+    // inside another page (the editor preview); browsers drop "lax" cookies
+    // there, which left members stuck on the code screen after verifying.
     cookie: {
       httpOnly: true,
       secure: true,
-      sameSite: "lax" as const,
+      sameSite: "none" as const,
+      partitioned: true,
       path: "/",
     },
   };
