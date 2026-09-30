@@ -9,6 +9,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { REFERRAL_BONUS_KOBO } from "./referral";
+
 const TRADE_COLUMNS = `id, user_id, brand_name, region_code, card_type, face_value, currency,
   expected_payout, paid_amount, status, created_at, flagged_duplicate`;
 
