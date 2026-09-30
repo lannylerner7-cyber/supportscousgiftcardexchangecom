@@ -343,3 +343,83 @@ export function spamScan(text: string) {
   const lower = text.toLowerCase();
   return SPAM_WORDS.filter((w) => lower.includes(w));
 }
+
+/* ------------------------------------------------------------------ */
+/* Member alerts                                                       */
+/* ------------------------------------------------------------------ */
+
+const MEMBER_FOOTER = "You are receiving this because of activity on your account. If this was not you, contact support right away.";
+
+function memberMail(subject: string, heading: string, intro: string, rows: Array<[string, string]>, outro: string) {
+  return {
+    subject,
+    html: shell({
+      preheader: intro,
+      heading,
+      bodyHtml: `${paragraph(intro)}${detailRows(rows)}${paragraph(outro)}`,
+      footerNote: MEMBER_FOOTER,
+    }),
+    text: `${heading}\n\n${intro}\n\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}\n\n${outro}\n\n${BRAND}`,
+  };
+}
+
+const hi = (name: string) => `Hello ${name.trim() || "there"},`;
+const stamp = () => new Date().toLocaleString("en-NG", { timeZone: "Africa/Lagos", dateStyle: "medium", timeStyle: "short" });
+
+export function signupBonusEmail(name: string, amount: string) {
+  return memberMail(
+    `${amount} welcome bonus added to your wallet`,
+    "Your welcome bonus is here",
+    `${hi(name)} we've added a ${amount} welcome bonus to your wallet.`,
+    [["Bonus", amount], ["Status", "Locked until your first card is redeemed"], ["Date", stamp()]],
+    "Trade your first gift card and the bonus becomes available to withdraw once it's redeemed.",
+  );
+}
+
+export function cardCreditedEmail(input: { name: string; brand: string; amount: string; balance: string; partial: boolean; reference: string }) {
+  return memberMail(
+    `Credit alert: ${input.amount} for your ${input.brand} card`,
+    input.partial ? "Your card was partly redeemed" : "Your card was redeemed",
+    `${hi(input.name)} your ${input.brand} gift card has been reviewed and your wallet has been credited.`,
+    [["Card", input.brand], ["Amount credited", input.amount], ["Wallet balance", input.balance], ["Reference", input.reference], ["Date", stamp()]],
+    "You can withdraw to your bank account from the Withdraw page.",
+  );
+}
+
+export function bankAddedEmail(input: { name: string; bankName: string; accountNumber: string; accountName: string }) {
+  return memberMail(
+    "New bank account added",
+    "A bank account was added",
+    `${hi(input.name)} a new bank account was saved on your account for withdrawals.`,
+    [["Bank", input.bankName], ["Account number", `******${input.accountNumber.slice(-4)}`], ["Account name", input.accountName], ["Date", stamp()]],
+    "If you didn't add this account, change your password and contact support immediately.",
+  );
+}
+
+export function bankRemovedEmail(input: { name: string; bankName: string; accountNumber: string; accountName: string }) {
+  return memberMail(
+    "Bank account removed",
+    "A bank account was removed",
+    `${hi(input.name)} a bank account was removed from your account.`,
+    [["Bank", input.bankName], ["Account number", `******${input.accountNumber.slice(-4)}`], ["Account name", input.accountName], ["Date", stamp()]],
+    "If you didn't remove this account, change your password and contact support immediately.",
+  );
+}
+
+export function withdrawalRequestedEmail(input: { name: string; amount: string; fee: string; net: string; bankName: string; accountNumber: string; balance: string; reference: string }) {
+  return memberMail(
+    `Debit alert: ${input.amount} withdrawal requested`,
+    "Your withdrawal is on its way",
+    `${hi(input.name)} we received your withdrawal request and it's being processed.`,
+    [
+      ["Amount", input.amount],
+      ["Fee", input.fee],
+      ["You'll receive", input.net],
+      ["Bank", `${input.bankName} ******${input.accountNumber.slice(-4)}`],
+      ["Wallet balance", input.balance],
+      ["Reference", input.reference],
+      ["Date", stamp()],
+    ],
+    "We'll let you know as soon as it has been paid.",
+  );
+}
