@@ -229,6 +229,12 @@ export const adminReviewTrade = createServerFn({ method: "POST" })
         },
       );
 
+      // A redeemed card unlocks every held bonus (welcome + referral).
+      statements.push({
+        sql: "UPDATE wallets SET locked_naira = 0, updated_at = ? WHERE user_id = ? AND locked_naira > 0",
+        params: [now, userId],
+      });
+
       // First redeemed card of a referred member: unlock their ₦2,000 and pay
       // the referrer theirs. Guarded in SQL so it can only ever happen once.
       const referral = await queryOne<{ referred_by: string | null; paid: number }>(
@@ -260,12 +266,6 @@ export const adminReviewTrade = createServerFn({ method: "POST" })
                   SELECT ?, ?, 'Referral bonus paid', '₦2,000 has been added to your wallet.', 'success', '/app', ?
                    WHERE ${notPaid}`,
             params: [newId(), referrerId, now],
-          },
-          {
-            // Last: the unlock line itself is the "already paid" marker.
-            sql: `UPDATE wallets SET locked_naira = MAX(locked_naira - ?, 0), updated_at = ?
-                   WHERE user_id = ? AND ${notPaid}`,
-            params: [REFERRAL_BONUS_KOBO, now, userId],
           },
           {
             sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
@@ -315,6 +315,22 @@ export const adminReviewTrade = createServerFn({ method: "POST" })
     );
 
     await transaction(statements);
+
+    if (credited > 0) {
+      const { mailMember, naira } = await import("./member-mail.server");
+      const { cardCreditedEmail } = await import("./email.server");
+      const w = await queryOne<{ balance_naira: number }>("SELECT balance_naira FROM wallets WHERE user_id = ?", [userId]);
+      await mailMember(userId, (name) =>
+        cardCreditedEmail({
+          name,
+          brand: String(trade["brand_name"]),
+          amount: naira(credited),
+          balance: naira(Number(w?.balance_naira ?? 0)),
+          partial: data.status === "partially_paid",
+          reference: data.tradeId.slice(0, 8).toUpperCase(),
+        }),
+      );
+    }
     return { ok: true as const };
   });
 

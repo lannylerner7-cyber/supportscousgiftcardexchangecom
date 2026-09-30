@@ -194,6 +194,18 @@ export const verifyOtpCode = createServerFn({ method: "POST" })
           );
           const mail = welcomeEmail(who?.full_name ?? "");
           await sendEmail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+          // Welcome-bonus credit alert, only if the bonus was actually given.
+          const bonus = await queryOne<{ amount: number }>(
+            `SELECT t.amount FROM wallet_transactions t JOIN users u ON u.id = t.user_id
+              WHERE u.email = ? AND t.reference_type = 'signup_bonus' LIMIT 1`,
+            [email],
+          );
+          if (bonus) {
+            const { signupBonusEmail } = await import("./email.server");
+            const { naira } = await import("./member-mail.server");
+            const b = signupBonusEmail(who?.full_name ?? "", naira(Number(bonus.amount)));
+            await sendEmail({ to: email, subject: b.subject, html: b.html, text: b.text });
+          }
         } catch (e) {
           console.error("[email] welcome send failed", (e as Error).message);
         }
