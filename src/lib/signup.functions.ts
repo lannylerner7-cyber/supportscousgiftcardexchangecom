@@ -16,7 +16,7 @@ import {
   OTP_TTL_MIN,
   sixDigitCode,
 } from "./otp-policy";
-import { REFERRAL_BONUS_KOBO } from "./referral";
+import { REFERRAL_BONUS_KOBO, SIGNUP_BONUS_KOBO } from "./referral";
 
 export type RegisterResult =
   | { ok: false; error: "exists" | "cooldown" | "too_many"; retryIn?: number }
