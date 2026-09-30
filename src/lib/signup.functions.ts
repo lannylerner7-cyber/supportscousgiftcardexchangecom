@@ -16,6 +16,7 @@ import {
   OTP_TTL_MIN,
   sixDigitCode,
 } from "./otp-policy";
+import { REFERRAL_BONUS_KOBO } from "./referral";
 
 export type RegisterResult =
   | { ok: false; error: "exists" | "cooldown" | "too_many"; retryIn?: number }
@@ -60,6 +61,7 @@ export const registerAccount = createServerFn({ method: "POST" })
     const cooldownFrom = new Date(now.getTime() - OTP_RESEND_COOLDOWN_S * 1000).toISOString();
 
     const userId = newId();
+    const walletId = newId();
     const iso = nowIso();
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
@@ -121,9 +123,21 @@ export const registerAccount = createServerFn({ method: "POST" })
         ],
       },
       {
-        sql: `INSERT INTO wallets (id, user_id, created_at, updated_at)
-              SELECT ?, ?, ?, ? WHERE ${created}`,
-        params: [newId(), userId, iso, iso, userId],
+        // A valid referral code gives the new member ₦2,000 straight away,
+        // held as locked until their first card is redeemed.
+        sql: `INSERT INTO wallets (id, user_id, balance_naira, locked_naira, created_at, updated_at)
+              SELECT ?, ?, b.v, b.v, ?, ?
+                FROM (SELECT CASE WHEN EXISTS (SELECT 1 FROM profiles WHERE referral_code = ? AND id <> ?)
+                                  THEN ? ELSE 0 END AS v) b
+               WHERE ${created}`,
+        params: [walletId, userId, iso, iso, referralCode ?? "__no_referral__", userId, REFERRAL_BONUS_KOBO, userId],
+      },
+      {
+        sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
+                     reference_type, reference_id, note, created_at)
+              SELECT ?, ?, ?, 'credit', ?, ?, 'referral_signup', ?, 'Referral bonus (unlocks after your first redeemed card)', ?
+               WHERE ${created} AND EXISTS (SELECT 1 FROM wallets WHERE id = ? AND locked_naira > 0)`,
+        params: [newId(), walletId, userId, REFERRAL_BONUS_KOBO, REFERRAL_BONUS_KOBO, userId, iso, userId, walletId],
       },
       {
         sql: `INSERT INTO user_roles (id, user_id, role, created_at)
