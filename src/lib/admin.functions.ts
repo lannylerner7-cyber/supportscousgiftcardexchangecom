@@ -226,6 +226,54 @@ export const adminReviewTrade = createServerFn({ method: "POST" })
           ],
         },
       );
+
+      // First redeemed card of a referred member: unlock their ₦2,000 and pay
+      // the referrer theirs. Guarded in SQL so it can only ever happen once.
+      const referral = await queryOne<{ referred_by: string | null; paid: number }>(
+        `SELECT p.referred_by,
+                (SELECT COUNT(*) FROM wallet_transactions
+                  WHERE reference_type = 'referral_unlock' AND reference_id = p.id) AS paid
+           FROM profiles p WHERE p.id = ?`,
+        [userId],
+      );
+      if (referral?.referred_by && Number(referral.paid) === 0 && referral.referred_by !== userId) {
+        const referrerId = referral.referred_by;
+        const notPaid = `NOT EXISTS (SELECT 1 FROM wallet_transactions
+                            WHERE reference_type = 'referral_unlock' AND reference_id = '${userId.replace(/'/g, "")}')`;
+        statements.push(
+          {
+            sql: `UPDATE wallets SET balance_naira = balance_naira + ?, updated_at = ?
+                   WHERE user_id = ? AND ${notPaid}`,
+            params: [REFERRAL_BONUS_KOBO, now, referrerId],
+          },
+          {
+            sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
+                        reference_type, reference_id, note, created_at)
+                  SELECT ?, w.id, w.user_id, 'credit', ?, w.balance_naira, 'referral', ?, 'Referral bonus — your friend redeemed their first card', ?
+                    FROM wallets w WHERE w.user_id = ? AND ${notPaid}`,
+            params: [newId(), REFERRAL_BONUS_KOBO, userId, now, referrerId],
+          },
+          {
+            sql: `INSERT INTO notifications (id, user_id, title, body, type, link, created_at)
+                  SELECT ?, ?, 'Referral bonus paid', '₦2,000 has been added to your wallet.', 'success', '/app', ?
+                   WHERE ${notPaid}`,
+            params: [newId(), referrerId, now],
+          },
+          {
+            // Last: the unlock line itself is the "already paid" marker.
+            sql: `UPDATE wallets SET locked_naira = MAX(locked_naira - ?, 0), updated_at = ?
+                   WHERE user_id = ? AND ${notPaid}`,
+            params: [REFERRAL_BONUS_KOBO, now, userId],
+          },
+          {
+            sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
+                        reference_type, reference_id, note, created_at)
+                  SELECT ?, w.id, w.user_id, 'release', ?, w.balance_naira, 'referral_unlock', ?, 'Referral bonus unlocked', ?
+                    FROM wallets w WHERE w.user_id = ? AND ${notPaid}`,
+            params: [newId(), REFERRAL_BONUS_KOBO, userId, now, userId],
+          },
+        );
+      }
     }
 
     const title =
