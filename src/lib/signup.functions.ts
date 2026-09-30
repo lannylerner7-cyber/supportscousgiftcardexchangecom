@@ -16,7 +16,7 @@ import {
   OTP_TTL_MIN,
   sixDigitCode,
 } from "./otp-policy";
-import { REFERRAL_BONUS_KOBO } from "./referral";
+import { REFERRAL_BONUS_KOBO, SIGNUP_BONUS_KOBO } from "./referral";
 
 export type RegisterResult =
   | { ok: false; error: "exists" | "cooldown" | "too_many"; retryIn?: number }
@@ -66,6 +66,7 @@ export const registerAccount = createServerFn({ method: "POST" })
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
     const isAdmin = Boolean(adminEmail) && adminEmail === email;
+    const signupBonus = isAdmin ? 0 : SIGNUP_BONUS_KOBO;
 
     // Admin accounts never receive a verification code: they are verified
     // instantly so the daily mail allowance is reserved for members.
@@ -123,21 +124,28 @@ export const registerAccount = createServerFn({ method: "POST" })
         ],
       },
       {
-        // A valid referral code gives the new member ₦2,000 straight away,
-        // held as locked until their first card is redeemed.
+        // Every member gets the ₦5,000 welcome bonus; a valid referral code
+        // adds ₦2,000. Both stay locked until the first card is redeemed.
         sql: `INSERT INTO wallets (id, user_id, balance_naira, locked_naira, created_at, updated_at)
               SELECT ?, ?, b.v, b.v, ?, ?
-                FROM (SELECT CASE WHEN EXISTS (SELECT 1 FROM profiles WHERE referral_code = ? AND id <> ?)
+                FROM (SELECT ? + CASE WHEN EXISTS (SELECT 1 FROM profiles WHERE referral_code = ? AND id <> ?)
                                   THEN ? ELSE 0 END AS v) b
                WHERE ${created}`,
-        params: [walletId, userId, iso, iso, referralCode ?? "__no_referral__", userId, REFERRAL_BONUS_KOBO, userId],
+        params: [walletId, userId, iso, iso, signupBonus, referralCode ?? "__no_referral__", userId, REFERRAL_BONUS_KOBO, userId],
       },
       {
         sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
                      reference_type, reference_id, note, created_at)
-              SELECT ?, ?, ?, 'credit', ?, ?, 'referral_signup', ?, 'Referral bonus (unlocks after your first redeemed card)', ?
-               WHERE ${created} AND EXISTS (SELECT 1 FROM wallets WHERE id = ? AND locked_naira > 0)`,
-        params: [newId(), walletId, userId, REFERRAL_BONUS_KOBO, REFERRAL_BONUS_KOBO, userId, iso, userId, walletId],
+              SELECT ?, ?, ?, 'credit', ?, ?, 'signup_bonus', ?, 'Welcome bonus (unlocks after your first redeemed card)', ?
+               WHERE ${created} AND ? > 0`,
+        params: [newId(), walletId, userId, signupBonus, signupBonus, userId, iso, userId, signupBonus],
+      },
+      {
+        sql: `INSERT INTO wallet_transactions (id, wallet_id, user_id, type, amount, balance_after,
+                     reference_type, reference_id, note, created_at)
+              SELECT ?, ?, ?, 'credit', ?, locked_naira, 'referral_signup', ?, 'Referral bonus (unlocks after your first redeemed card)', ?
+                FROM wallets WHERE id = ? AND locked_naira > ? AND ${created}`,
+        params: [newId(), walletId, userId, REFERRAL_BONUS_KOBO, userId, iso, walletId, signupBonus, userId],
       },
       {
         sql: `INSERT INTO user_roles (id, user_id, role, created_at)

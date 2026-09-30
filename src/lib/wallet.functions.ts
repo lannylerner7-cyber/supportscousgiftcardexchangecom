@@ -123,6 +123,11 @@ export const addBankAccount = createServerFn({ method: "POST" })
       ],
     });
     await transaction(statements);
+    const { mailMember } = await import("./member-mail.server");
+    const { bankAddedEmail } = await import("./email.server");
+    await mailMember(userId, (name) =>
+      bankAddedEmail({ name, bankName: bank.name, accountNumber: data.accountNumber, accountName: data.accountName }),
+    );
     return { ok: true as const, id };
   });
 
@@ -130,9 +135,20 @@ export const removeBankAccount = createServerFn({ method: "POST" })
   .inputValidator((d: { id: string }) => z.object({ id: z.string().min(10) }).parse(d))
   .handler(async ({ data }) => {
     const { requireUserId } = await import("./guard.server");
-    const { execute } = await import("./d1.server");
+    const { execute, queryOne } = await import("./d1.server");
     const userId = await requireUserId();
+    const acct = await queryOne<{ bank_name: string; account_number: string; account_name: string }>(
+      "SELECT bank_name, account_number, account_name FROM bank_accounts WHERE id = ? AND user_id = ?",
+      [data.id, userId],
+    );
     await execute("DELETE FROM bank_accounts WHERE id = ? AND user_id = ?", [data.id, userId]);
+    if (acct) {
+      const { mailMember } = await import("./member-mail.server");
+      const { bankRemovedEmail } = await import("./email.server");
+      await mailMember(userId, (name) =>
+        bankRemovedEmail({ name, bankName: acct.bank_name, accountNumber: acct.account_number, accountName: acct.account_name }),
+      );
+    }
     return { ok: true as const };
   });
 
@@ -334,5 +350,19 @@ export const createWithdrawal = createServerFn({ method: "POST" })
       },
     ]);
 
+    const { mailMember, naira } = await import("./member-mail.server");
+    const { withdrawalRequestedEmail } = await import("./email.server");
+    await mailMember(userId, (name) =>
+      withdrawalRequestedEmail({
+        name,
+        amount: naira(amountKobo),
+        fee: naira(feeKobo),
+        net: naira(amountKobo - feeKobo),
+        bankName: String(bank["bank_name"]),
+        accountNumber: String(bank["account_number"]),
+        balance: naira(newBalance),
+        reference: withdrawalId.slice(0, 8).toUpperCase(),
+      }),
+    );
     return { id: withdrawalId };
   });
