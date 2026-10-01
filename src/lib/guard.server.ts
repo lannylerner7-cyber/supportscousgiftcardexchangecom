@@ -79,7 +79,9 @@ export async function requireAdminId(): Promise<string> {
 
 /* ----------------------------------------------------------- passwords */
 
-const PBKDF2_ITERATIONS = 120_000;
+// The live server's built-in PBKDF2 refuses more than 100,000 rounds.
+const PBKDF2_ITERATIONS = 100_000;
+const NATIVE_MAX_ITERATIONS = 100_000;
 
 function toHex(bytes: Uint8Array) {
   return Array.from(bytes)
@@ -94,6 +96,12 @@ function fromHex(hex: string) {
 }
 
 async function derive(password: string, salt: Uint8Array, iterations: number) {
+  if (iterations > NATIVE_MAX_ITERATIONS) {
+    // Older accounts were hashed with 120,000 rounds; check those in plain JS.
+    const { pbkdf2Async } = await import("@noble/hashes/pbkdf2.js");
+    const { sha256 } = await import("@noble/hashes/sha2.js");
+    return pbkdf2Async(sha256, new TextEncoder().encode(password), salt, { c: iterations, dkLen: 32 });
+  }
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
