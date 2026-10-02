@@ -170,6 +170,16 @@ export const signIn = createServerFn({ method: "POST" })
       return { ok: false as const, error: "bad_credentials" };
     }
 
+    // Older accounts were saved with 120,000 rounds, which the live server can
+    // only check slowly; re-save them in the current format on first sign-in.
+    if (!user.password_hash.startsWith("pbkdf2$100000$")) {
+      const { hashPassword } = await import("./guard.server");
+      await execute("UPDATE users SET password_hash = ? WHERE id = ?", [
+        await hashPassword(data.password),
+        user.id,
+      ]);
+    }
+
     await execute("UPDATE users SET last_sign_in_at = ? WHERE id = ?", [nowIso(), user.id]);
     await startSession(user.id, email);
     return { ok: true as const, userId: user.id };
