@@ -110,12 +110,12 @@ export const requestOtp = createServerFn({ method: "POST" })
     );
 
     const mail = otpEmail(code, data.purpose, OTP_TTL_MIN);
-    const result = await sendEmail({
-      to: email,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-    });
+    // Never hold the member on the login screen for a slow mail server:
+    // after 10s they move on and can tap "Send me a new code".
+    const result = await Promise.race([
+      sendEmail({ to: email, subject: mail.subject, html: mail.html, text: mail.text }),
+      new Promise<{ sent: boolean }>((r) => setTimeout(() => r({ sent: false }), 10_000)),
+    ]);
 
     return {
       ok: true as const,

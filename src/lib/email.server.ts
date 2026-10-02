@@ -1,9 +1,13 @@
 /**
  * Outgoing app email (server-only).
  *
- * Delivery goes through the SMTP account configured in the project secrets:
- * SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE,
- * APP_EMAIL_FROM, APP_EMAIL_FROM_NAME, APP_EMAIL_REPLY_TO.
+ * Primary delivery: Cloudflare Email Service over HTTPS, through the same
+ * Cloudflare connection the database uses (no SMTP password involved). The
+ * live server cannot open raw SMTP connections to Cloudflare's mail hosts,
+ * so SMTP (SMTP_HOST/PORT/USER/PASS/SECURE) is only a fallback for hosts
+ * where the HTTPS route is not configured (e.g. a self-hosted container).
+ *
+ * Sender: APP_EMAIL_FROM, APP_EMAIL_FROM_NAME, APP_EMAIL_REPLY_TO.
  *
  * Templates are table-based so Gmail, Outlook, Apple Mail and mobile clients
  * all render them, and every send carries a plain-text alternative which keeps
@@ -15,27 +19,99 @@ export type SendResult = { sent: boolean; reason?: string };
 
 const BRAND = "ScousGiftCardExchange";
 
-export function mailConfig(): (SmtpConfig & { from: string; fromAddress: string; replyTo?: string }) | null {
-  const host = process.env["SMTP_HOST"];
+type Sender = { from: string; fromAddress: string; fromName: string; replyTo?: string };
+
+function sender(): Sender | null {
   const from = process.env["APP_EMAIL_FROM"];
-  if (!host || !from) return null;
+  if (!from) return null;
   const name = process.env["APP_EMAIL_FROM_NAME"] ?? BRAND;
-  const port = Number(process.env["SMTP_PORT"] ?? 587);
   const replyTo = process.env["APP_EMAIL_REPLY_TO"];
+  return {
+    from: /[",:;<>]/.test(name) ? `"${name.replace(/"/g, "")}" <${from}>` : `${name} <${from}>`,
+    fromAddress: from,
+    fromName: name,
+    ...(replyTo ? { replyTo } : {}),
+  };
+}
+
+function cloudflareApi() {
+  const lovableKey = process.env["LOVABLE_API_KEY"];
+  const cfKey = process.env["CLOUDFLARE_API_KEY"];
+  const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"];
+  if (!lovableKey || !cfKey || !accountId) return null;
+  const base = (process.env["CONNECTOR_GATEWAY_BASE_URL"] ?? "https://connector-gateway.lovable.dev").replace(/\/$/, "");
+  return { url: `${base}/cloudflare/client/v4/accounts/${accountId}/email/sending/send`, lovableKey, cfKey };
+}
+
+export function mailConfig(): (SmtpConfig & Sender) | null {
+  const s = sender();
+  const host = process.env["SMTP_HOST"];
+  if (!s || !host) return null;
+  const port = Number(process.env["SMTP_PORT"] ?? 587);
   return {
     host,
     port,
     user: process.env["SMTP_USER"] ?? "",
     pass: process.env["SMTP_PASS"] ?? "",
     secure: (process.env["SMTP_SECURE"] ?? (port === 465 ? "true" : "false")) === "true",
-    from: /[",:;<>]/.test(name) ? `"${name.replace(/"/g, "")}" <${from}>` : `${name} <${from}>`,
-    fromAddress: from,
-    ...(replyTo ? { replyTo } : {}),
+    ...s,
   };
 }
 
 export function emailConfigured(): boolean {
-  return mailConfig() !== null;
+  return sender() !== null && (cloudflareApi() !== null || mailConfig() !== null);
+}
+
+/** True when mail goes through Cloudflare's HTTPS email API rather than SMTP. */
+export function usesCloudflareEmail(): boolean {
+  return cloudflareApi() !== null;
+}
+
+async function sendViaCloudflare(
+  api: NonNullable<ReturnType<typeof cloudflareApi>>,
+  s: Sender,
+  to: string[],
+  input: { subject: string; html: string; text: string },
+): Promise<SendResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const res = await fetch(api.url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${api.lovableKey}`,
+        "X-Connection-Api-Key": api.cfKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to,
+        from: { address: s.fromAddress, name: s.fromName },
+        ...(s.replyTo ? { reply_to: s.replyTo } : {}),
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+      }),
+    });
+    const body = await res.text();
+    if (!res.ok) throw new Error(`Cloudflare email [${res.status}]: ${body.slice(0, 300)}`);
+    const payload = JSON.parse(body) as {
+      success?: boolean;
+      errors?: { message?: string }[];
+      result?: { permanent_bounces?: string[]; suppressed_recipients?: string[] };
+    };
+    if (!payload.success) {
+      throw new Error(payload.errors?.map((e) => e.message).join("; ") || "Cloudflare email refused");
+    }
+    const blocked = [
+      ...(payload.result?.permanent_bounces ?? []),
+      ...(payload.result?.suppressed_recipients ?? []),
+    ];
+    if (blocked.length >= to.length) return { sent: false, reason: "recipient_blocked" };
+    return { sent: true };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function sendEmail(input: {
@@ -44,11 +120,23 @@ export async function sendEmail(input: {
   html: string;
   text: string;
 }): Promise<SendResult> {
-  const cfg = mailConfig();
-  if (!cfg) return { sent: false, reason: "not_configured" };
+  const s = sender();
+  if (!s) return { sent: false, reason: "not_configured" };
   const to = (Array.isArray(input.to) ? input.to : [input.to]).filter(Boolean);
   if (to.length === 0) return { sent: false, reason: "no_recipient" };
 
+  const api = cloudflareApi();
+  if (api) {
+    try {
+      return await sendViaCloudflare(api, s, to, input);
+    } catch (e) {
+      console.error("[email] cloudflare send failed", (e as Error).message);
+      return { sent: false, reason: (e as Error).message };
+    }
+  }
+
+  const cfg = mailConfig();
+  if (!cfg) return { sent: false, reason: "not_configured" };
   try {
     await smtpSend(cfg, {
       from: cfg.from,

@@ -31,3 +31,10 @@
 - Multi-step money operations run through `transaction()` in `d1.server.ts`
   (D1's multi-statement endpoint, all-or-nothing).
   Why: balances and ledger lines must never diverge.
+- Outgoing email goes through Cloudflare Email Service's HTTPS API via the
+  Cloudflare connector (`sendEmail` in `src/lib/email.server.ts`); SMTP is only a
+  fallback when that connection is absent.
+  Why: the live server cannot open SMTP connections to Cloudflare's mail hosts.
+- Passwords are hashed with PBKDF2 at 100,000 rounds; older 120,000-round hashes
+  are verified in plain JS and re-saved on the next sign-in.
+  Why: the live server's built-in PBKDF2 refuses more than 100,000 rounds.
