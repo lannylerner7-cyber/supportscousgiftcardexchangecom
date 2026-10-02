@@ -21,7 +21,8 @@ export const Route = createFileRoute("/api/public/health")({
         }
 
         storage = process.env["R2_BUCKET"] ? "configured" : "not_configured";
-        const email = process.env["SMTP_HOST"] ? "configured" : "not_configured";
+        const { emailConfigured } = await import("@/lib/email.server");
+        const email = emailConfigured() ? "configured" : "not_configured";
         const healthy = database === "ok";
 
         return Response.json(
