@@ -62,6 +62,11 @@ export function emailConfigured(): boolean {
   return sender() !== null && (cloudflareApi() !== null || mailConfig() !== null);
 }
 
+/** True when mail goes through Cloudflare's HTTPS email API rather than SMTP. */
+export function usesCloudflareEmail(): boolean {
+  return cloudflareApi() !== null;
+}
+
 async function sendViaCloudflare(
   api: NonNullable<ReturnType<typeof cloudflareApi>>,
   s: Sender,

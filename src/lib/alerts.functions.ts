@@ -159,15 +159,17 @@ export const submitContactMessage = createServerFn({ method: "POST" })
 export const mailStatus = createServerFn({ method: "GET" }).handler(async () => {
   const { requireAdminId } = await import("./guard.server");
   await requireAdminId();
-  const { mailConfig } = await import("./email.server");
+  const { mailConfig, emailConfigured, usesCloudflareEmail } = await import("./email.server");
   const cfg = mailConfig();
+  const viaApi = usesCloudflareEmail();
+  const from = process.env["APP_EMAIL_FROM"] ?? null;
   return {
-    configured: cfg !== null,
-    host: cfg?.host ?? null,
-    port: cfg?.port ?? null,
-    secure: cfg?.secure ?? null,
-    from: cfg?.from ?? null,
-    replyTo: cfg?.replyTo ?? null,
+    configured: emailConfigured(),
+    host: viaApi ? "Cloudflare Email Service (HTTPS)" : (cfg?.host ?? null),
+    port: viaApi ? 443 : (cfg?.port ?? null),
+    secure: viaApi ? true : (cfg?.secure ?? null),
+    from: cfg?.from ?? from,
+    replyTo: process.env["APP_EMAIL_REPLY_TO"] ?? null,
   };
 });
 
