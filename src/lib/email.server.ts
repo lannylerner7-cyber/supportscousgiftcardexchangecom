@@ -115,11 +115,23 @@ export async function sendEmail(input: {
   html: string;
   text: string;
 }): Promise<SendResult> {
-  const cfg = mailConfig();
-  if (!cfg) return { sent: false, reason: "not_configured" };
+  const s = sender();
+  if (!s) return { sent: false, reason: "not_configured" };
   const to = (Array.isArray(input.to) ? input.to : [input.to]).filter(Boolean);
   if (to.length === 0) return { sent: false, reason: "no_recipient" };
 
+  const api = cloudflareApi();
+  if (api) {
+    try {
+      return await sendViaCloudflare(api, s, to, input);
+    } catch (e) {
+      console.error("[email] cloudflare send failed", (e as Error).message);
+      return { sent: false, reason: (e as Error).message };
+    }
+  }
+
+  const cfg = mailConfig();
+  if (!cfg) return { sent: false, reason: "not_configured" };
   try {
     await smtpSend(cfg, {
       from: cfg.from,
