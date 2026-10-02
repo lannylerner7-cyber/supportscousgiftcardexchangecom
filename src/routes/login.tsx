@@ -47,51 +47,58 @@ function Login() {
     setBusy(true);
     setNotice(null);
     const email = form.email.trim().toLowerCase();
+    try {
+      const gate = await loginGate({ data: { email } });
+      if (!gate.ok) {
+        setNotice(
+          gate.error === "unknown_user"
+            ? "We don't recognise that email. Check it or create an account."
+            : lockMessage(gate.until!),
+        );
+        return;
+      }
 
-    const gate = await loginGate({ data: { email } });
-    if (!gate.ok) {
-      setBusy(false);
-      setNotice(
-        gate.error === "unknown_user"
-          ? "We don't recognise that email. Check it or create an account."
-          : lockMessage(gate.until!),
-      );
-      return;
-    }
+      const attempt = await signIn({ data: { email, password: form.password } });
+      if (!attempt.ok) {
+        const res = await recordLoginAttempt({ data: { email, succeeded: false } });
+        setNotice(
+          res.locked
+            ? lockMessage(res.until!)
+            : `Wrong password. ${res.remaining} ${res.remaining === 1 ? "try" : "tries"} left before a 30-minute lock.`,
+        );
+        return;
+      }
 
-    const attempt = await signIn({ data: { email, password: form.password } });
-    if (!attempt.ok) {
-      const res = await recordLoginAttempt({ data: { email, succeeded: false } });
-      setBusy(false);
-      setNotice(
-        res.locked
-          ? lockMessage(res.until!)
-          : `Wrong password. ${res.remaining} ${res.remaining === 1 ? "try" : "tries"} left before a 30-minute lock.`,
-      );
-      return;
-    }
+      await recordLoginAttempt({ data: { email, succeeded: true } });
+      await refreshAccount();
 
-    await recordLoginAttempt({ data: { email, succeeded: true } });
-    await refreshAccount();
-    const otp = await requestOtp({ data: { email, purpose: "login" } });
-    setBusy(false);
-
-    // Admins never get a code - the mail allowance is reserved for members.
-    // Otherwise a code is outstanding whenever mail is working; only a
-    // mailbox we cannot reach at all lets the member straight in.
-    const skipCode =
-      otp.ok && (otp.adminBypass || (!otp.delivered && !otp.emailConfigured));
-    if (!skipCode) {
-      markOtpPending(email);
-      void navigate({
-        to: "/login/verify",
-        search: { email, ...(otp.ok ? { exp: otp.expiresAt } : {}) },
+      // If the code email can't be requested, still go to the code screen;
+      // the member can ask for a new code from there.
+      const otp = await requestOtp({ data: { email, purpose: "login" } }).catch((err) => {
+        console.error("Login code request failed", err);
+        return null;
       });
-      return;
+
+      // Admins never get a code - the mail allowance is reserved for members.
+      const skipCode =
+        !!otp && otp.ok && (otp.adminBypass || (!otp.delivered && !otp.emailConfigured));
+      if (!skipCode) {
+        markOtpPending(email);
+        void navigate({
+          to: "/login/verify",
+          search: { email, ...(otp?.ok && otp.expiresAt ? { exp: otp.expiresAt } : {}) },
+        });
+        return;
+      }
+      clearOtpPending();
+      toast.success("Welcome back!");
+      void navigate({ to: "/app" });
+    } catch (err) {
+      console.error("Login failed", err);
+      setNotice("We couldn't log you in right now. Please try again.");
+    } finally {
+      setBusy(false);
     }
-    clearOtpPending();
-    toast.success("Welcome back!");
-    void navigate({ to: "/app" });
   }
 
   return (
