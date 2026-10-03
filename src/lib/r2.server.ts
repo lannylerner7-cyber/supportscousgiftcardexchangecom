@@ -7,8 +7,12 @@
  */
 
 function gatewayBase() {
-  const base = process.env["CONNECTOR_GATEWAY_BASE_URL"] ?? "https://connector-gateway.lovable.dev";
-  return `${base.replace(/\/$/, "")}/cloudflare/client/v4`;
+  const lovableKey = process.env["LOVABLE_API_KEY"];
+  if (lovableKey) {
+    const base = process.env["CONNECTOR_GATEWAY_BASE_URL"] ?? "https://connector-gateway.lovable.dev";
+    return `${base.replace(/\/$/, "")}/cloudflare/client/v4`;
+  }
+  return "https://api.cloudflare.com/client/v4";
 }
 
 function config() {
@@ -16,7 +20,7 @@ function config() {
   const cfKey = process.env["CLOUDFLARE_API_KEY"];
   const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"];
   const bucket = process.env["R2_BUCKET"];
-  if (!lovableKey || !cfKey || !accountId || !bucket) {
+  if (!cfKey || !accountId || !bucket) {
     throw new Error("File storage is not configured.");
   }
   return { lovableKey, cfKey, accountId, bucket };
@@ -31,11 +35,16 @@ function objectUrl(key: string) {
   return `${gatewayBase()}/accounts/${accountId}/r2/buckets/${bucket}/objects/${safeKey}`;
 }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const { lovableKey, cfKey } = config();
+  if (lovableKey) {
+    return {
+      Authorization: `Bearer ${lovableKey}`,
+      "X-Connection-Api-Key": cfKey,
+    };
+  }
   return {
-    Authorization: `Bearer ${lovableKey}`,
-    "X-Connection-Api-Key": cfKey,
+    Authorization: `Bearer ${cfKey}`,
   };
 }
 
