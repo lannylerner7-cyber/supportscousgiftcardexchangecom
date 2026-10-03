@@ -44,15 +44,19 @@ type D1Result = {
 
 async function post(sql: string, params: unknown[]): Promise<D1Result[]> {
   const { lovableKey, cfKey, accountId, databaseId } = credentials();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (lovableKey) {
+    headers["Authorization"] = `Bearer ${lovableKey}`;
+    headers["X-Connection-Api-Key"] = cfKey;
+  } else {
+    headers["Authorization"] = `Bearer ${cfKey}`;
+  }
+
   const response = await fetch(
     `${gatewayBase()}/accounts/${accountId}/d1/database/${databaseId}/query`,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": cfKey,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({ sql, params: params.map(bind) }),
     },
   );
