@@ -123,3 +123,10 @@ Status key: [ ] not started · [~] in progress · [x] done
 - [x] Real card artwork supplied by the owner: 20 of 22 brands now use pictures stored in this project (Foot Locker and Netflix were not in the list, so they keep the letter badge)
 - [ ] Decide whether brands in the artwork list that are not yet tradable (Macy's, Walmart, Sephora, Nordstrom, Visa, Roblox, Uber Eats, DoorDash, …) should be added to the market with their own rates
 - [x] Cloudflare mail sending configured and verified end to end: a real code was emailed, accepted on the reset page and signed the account in
+
+## Phase 12 — Attached market expansion (3 Oct)
+
+- [~] Add every attached gift card with its supplied artwork
+- [~] Create editable region/type rate entries for every added card
+- [~] Verify homepage, rates, member trade, and admin rate management end to end
+
