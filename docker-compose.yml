@@ -3,18 +3,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: scousgiftcardexchange:latest
-    container_name: scousgiftcardexchange
     restart: unless-stopped
-    # Put the live values in a .env file next to this one. See DEPLOY.md.
     env_file:
       - .env
     environment:
-      PORT: ${PORT:-3000}
+      PORT: 3000
       HOST: 0.0.0.0
       NODE_ENV: production
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+    networks:
+      - coolify
     healthcheck:
       test:
         [
