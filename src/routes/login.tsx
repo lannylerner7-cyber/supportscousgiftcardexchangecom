@@ -9,7 +9,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 
 import { Label } from "@/components/ui/label";
 import { loginGate, recordLoginAttempt, requestOtp } from "@/lib/auth.functions";
-import { signIn } from "@/lib/account.functions";
+import { getAccount, signIn } from "@/lib/account.functions";
 import { useRefreshAccount } from "@/hooks/useAuth";
 import { clearOtpPending, markOtpPending } from "@/lib/otp-gate";
 
@@ -92,7 +92,8 @@ function Login() {
       }
       clearOtpPending();
       toast.success("Welcome back!");
-      void navigate({ to: "/app" });
+      const acct = await getAccount().catch(() => null);
+      void navigate({ to: acct?.isAdmin ? "/ScousGiftCardExchange/admin" : "/app" });
     } catch (err) {
       console.error("Login failed", err);
       setNotice("We couldn't log you in right now. Please try again.");

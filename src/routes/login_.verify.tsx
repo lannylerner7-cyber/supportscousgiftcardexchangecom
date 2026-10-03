@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AuthShell } from "@/components/AuthShell";
 import { OtpForm } from "@/components/OtpForm";
 import { clearOtpPending } from "@/lib/otp-gate";
+import { getAccount } from "@/lib/account.functions";
 
 export const Route = createFileRoute("/login_/verify")({
   validateSearch: z.object({ email: z.string().email().optional(), exp: z.string().optional() }),
@@ -47,10 +48,11 @@ function LoginVerify() {
         email={email}
         purpose="login"
         expiresAt={exp ?? null}
-        onVerified={() => {
+        onVerified={async () => {
           clearOtpPending();
           toast.success("Welcome back!");
-          void navigate({ to: "/app" });
+          const acct = await getAccount().catch(() => null);
+          void navigate({ to: acct?.isAdmin ? "/ScousGiftCardExchange/admin" : "/app" });
         }}
       />
     </AuthShell>

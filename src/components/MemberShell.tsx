@@ -1,8 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { Home, Repeat, Clock, Wallet, Settings } from "lucide-react";
+import { Home, Repeat, Clock, Wallet, Settings, ShieldCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useIsAdmin } from "@/hooks/useAuth";
 import { BrandWordmark } from "./BrandMark";
 
 const TABS = [
@@ -15,6 +16,7 @@ const TABS = [
 
 export function MemberShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isAdmin } = useIsAdmin();
 
   return (
     <div className="min-h-screen pb-24">
@@ -23,6 +25,15 @@ export function MemberShell({ children }: { children: ReactNode }) {
           <Link to="/app">
             <BrandWordmark />
           </Link>
+          {isAdmin && (
+            <Link
+              to="/ScousGiftCardExchange/admin"
+              className="border-primary bg-primary/10 text-primary flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Admin console
+            </Link>
+          )}
         </div>
       </header>
 
