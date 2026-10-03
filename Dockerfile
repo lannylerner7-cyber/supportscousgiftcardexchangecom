@@ -1,17 +1,15 @@
-# ScousGiftCardExchange — production image
+# ScousGiftCardExchange — production image for Coolify & Docker
 # Build:  docker compose build
 # Run:    docker compose up -d
-#
-# Nothing secret is baked into the image. Every value the site needs — the
-# Cloudflare database and file-storage details, the mail server and the session
-# key — is read from the environment when the container starts.
 
 FROM oven/bun:1 AS build
 WORKDIR /app
 
+# Install dependencies
 COPY package.json bun.lock* bunfig.toml ./
 RUN bun install --frozen-lockfile || bun install
 
+# Copy source and build
 COPY . .
 ENV NODE_ENV=production
 RUN bun run build
@@ -25,14 +23,16 @@ ENV NODE_ENV=production \
 
 RUN apk add --no-cache wget && addgroup -S app && adduser -S app -G app
 
-COPY --from=build --chown=app:app /app/.output ./.output
+# Copy production build outputs
+COPY --from=build --chown=app:app /app/dist ./dist
+COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/package.json ./package.json
 
 USER app
 EXPOSE 3000
 
-# The health check asks the app whether the database actually answers, so a
-# container that is running but cannot reach the database is reported unhealthy.
+# Container healthcheck querying the public health endpoint
 HEALTHCHECK --interval=30s --timeout=8s --start-period=25s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT}/api/public/health" | grep -q '"ok":true' || exit 1
 
-CMD ["node", ".output/server/index.mjs"]
+CMD ["node", "dist/server/index.mjs"]
