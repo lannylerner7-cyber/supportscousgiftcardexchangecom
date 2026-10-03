@@ -15,8 +15,12 @@ export type Row = Record<string, unknown>;
 export type Statement = { sql: string; params?: unknown[] };
 
 function gatewayBase() {
-  const base = process.env["CONNECTOR_GATEWAY_BASE_URL"] ?? "https://connector-gateway.lovable.dev";
-  return `${base.replace(/\/$/, "")}/cloudflare/client/v4`;
+  const lovableKey = process.env["LOVABLE_API_KEY"];
+  if (lovableKey) {
+    const base = process.env["CONNECTOR_GATEWAY_BASE_URL"] ?? "https://connector-gateway.lovable.dev";
+    return `${base.replace(/\/$/, "")}/cloudflare/client/v4`;
+  }
+  return "https://api.cloudflare.com/client/v4";
 }
 
 function credentials() {
@@ -24,9 +28,9 @@ function credentials() {
   const cfKey = process.env["CLOUDFLARE_API_KEY"];
   const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"];
   const databaseId = process.env["D1_DATABASE_ID"];
-  if (!lovableKey || !cfKey || !accountId || !databaseId) {
+  if (!cfKey || !accountId || !databaseId) {
     throw new Error(
-      "Database is not configured: LOVABLE_API_KEY, CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID and D1_DATABASE_ID are all required.",
+      "Database is not configured: CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID and D1_DATABASE_ID are required.",
     );
   }
   return { lovableKey, cfKey, accountId, databaseId };
