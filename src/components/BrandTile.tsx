@@ -34,7 +34,7 @@ export function BrandLogo({
     return (
       <span
         className={cn(
-          "ring-border/60 flex items-center justify-center rounded-xl bg-black/40 ring-1",
+          "ring-border/60 bg-surface-2 flex items-center justify-center overflow-hidden rounded-xl ring-1",
           className,
         )}
       >
@@ -45,7 +45,7 @@ export function BrandLogo({
           referrerPolicy="no-referrer"
           width={28}
           height={28}
-          className="h-[60%] w-[60%] object-contain"
+          className="h-full w-full object-contain p-1"
           onError={() => setBroken(true)}
         />
       </span>

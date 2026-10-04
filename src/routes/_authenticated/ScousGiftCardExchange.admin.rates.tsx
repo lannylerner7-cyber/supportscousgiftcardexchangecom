@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Search } from "lucide-react";
 
 import {
   adminListBrands,
@@ -32,6 +33,7 @@ function AdminRates() {
   const qc = useQueryClient();
   const [brandId, setBrandId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [brandQuery, setBrandQuery] = useState("");
 
   const brands = useQuery({
     queryKey: ["admin-brands"],
@@ -39,11 +41,17 @@ function AdminRates() {
   });
 
   const active = brandId ?? brands.data?.[0]?.id ?? null;
+  const filteredBrands = (brands.data ?? []).filter((brand) =>
+    brand.name.toLowerCase().includes(brandQuery.trim().toLowerCase()),
+  );
 
   const variants = useQuery({
     queryKey: ["admin-variants", active],
     enabled: Boolean(active),
-    queryFn: () => adminListVariants({ data: { brandId: active! } }),
+    queryFn: () => {
+      if (!active) return Promise.resolve([]);
+      return adminListVariants({ data: { brandId: active } });
+    },
   });
 
   const toggleBrand = useMutation({
@@ -74,8 +82,18 @@ function AdminRates() {
     <div className="space-y-5">
       <h1 className="font-display text-lg font-bold">Today's market & rates</h1>
 
+      <label className="border-border bg-surface focus-within:border-primary flex items-center gap-3 rounded-full border px-4 py-3">
+        <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+        <input
+          value={brandQuery}
+          onChange={(event) => setBrandQuery(event.target.value)}
+          placeholder="Search all gift cards"
+          className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+        />
+      </label>
+
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {(brands.data ?? []).map((b) => (
+        {filteredBrands.map((b) => (
           <button
             key={b.id}
             type="button"
