@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ImagePlus, Loader2, X } from "lucide-react";
+import { ArrowLeft, Check, ImagePlus, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { listBrands, listBrandVariants } from "@/lib/catalog.functions";
@@ -57,6 +57,7 @@ function TradePage() {
   const [pin, setPin] = useState("");
   const [note, setNote] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [brandQuery, setBrandQuery] = useState("");
 
   const brands = useQuery({
     queryKey: ["market-brands"],
@@ -66,11 +67,16 @@ function TradePage() {
   const variants = useQuery({
     queryKey: ["market-variants", brand?.id],
     enabled: Boolean(brand?.id),
-    queryFn: () =>
-      listBrandVariants({ data: { brandId: brand!.id } }) as unknown as Promise<Variant[]>,
+    queryFn: () => {
+      if (!brand) return Promise.resolve([]);
+      return listBrandVariants({ data: { brandId: brand.id } }) as unknown as Promise<Variant[]>;
+    },
   });
 
   const rows = variants.data ?? [];
+  const filteredBrands = (brands.data ?? []).filter((item) =>
+    item.name.toLowerCase().includes(brandQuery.trim().toLowerCase()),
+  );
 
   const regions = useMemo(() => {
     const map = new Map<string, NonNullable<Variant["gift_card_regions"]>>();
@@ -122,7 +128,14 @@ function TradePage() {
         body.append("file", file);
         body.append("tradeId", trade.id);
         const res = await fetch("/api/uploads", { method: "POST", body });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const contentType = res.headers.get("content-type") ?? "";
+          const responseBody = await res.text();
+          const message = contentType.includes("text/html")
+            ? "Your card was submitted, but its photo did not upload. Please contact support before submitting it again."
+            : responseBody.trim() || "The card photo could not be uploaded. Please try again.";
+          throw new Error(message);
+        }
       }
 
       // Tell the desk after everything is stored; a mail hiccup must not fail the trade.
@@ -181,30 +194,44 @@ function TradePage() {
 
       <div key={step} className="animate-[pop-in_.35s_ease-out]">
         {step === 0 && (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-            {brands.isLoading &&
-              Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className="bg-surface-2 shimmer h-24 rounded-2xl" />
+          <div className="space-y-4">
+            <label className="border-border bg-surface focus-within:border-primary flex items-center gap-3 rounded-full border px-4 py-3">
+              <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+              <input
+                value={brandQuery}
+                onChange={(event) => setBrandQuery(event.target.value)}
+                placeholder="Search gift cards"
+                className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+            </label>
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {brands.isLoading &&
+                Array.from({ length: 9 }).map((_, i) => (
+                  <div key={i} className="bg-surface-2 shimmer h-24 rounded-2xl" />
+                ))}
+              {filteredBrands.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => {
+                    setBrand(b);
+                    setRegionId(null);
+                    setCardType(null);
+                    go(1);
+                  }}
+                  className={cn(
+                    "border-border/70 bg-surface hover:bg-surface-2 tilt-tap flex flex-col items-center gap-2 rounded-2xl border p-3 transition-all",
+                    brand?.id === b.id && "border-primary",
+                  )}
+                >
+                  <BrandLogo brand={b} className="h-10 w-10" />
+                  <span className="text-center text-[11px] font-semibold">{b.name}</span>
+                </button>
               ))}
-            {(brands.data ?? []).map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => {
-                  setBrand(b);
-                  setRegionId(null);
-                  setCardType(null);
-                  go(1);
-                }}
-                className={cn(
-                  "border-border/70 bg-surface hover:bg-surface-2 tilt-tap flex flex-col items-center gap-2 rounded-2xl border p-3 transition-all",
-                  brand?.id === b.id && "border-primary",
-                )}
-              >
-                <BrandLogo brand={b} className="h-10 w-10" />
-                <span className="text-center text-[11px] font-semibold">{b.name}</span>
-              </button>
-            ))}
+            </div>
+            {!brands.isLoading && filteredBrands.length === 0 && (
+              <p className="text-muted-foreground py-8 text-center text-sm">No gift card matches that search.</p>
+            )}
           </div>
         )}
 
