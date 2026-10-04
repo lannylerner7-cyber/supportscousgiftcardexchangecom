@@ -126,6 +126,7 @@ Status key: [ ] not started · [~] in progress · [x] done
 
 ## Phase 12 — Attached market expansion (3 Oct)
 
+- [~] Fix trading-page gift-card image uploads returning an HTML error page
 - [~] Add every attached gift card with its supplied artwork
 - [~] Create editable region/type rate entries for every added card
 - [~] Verify homepage, rates, member trade, and admin rate management end to end
