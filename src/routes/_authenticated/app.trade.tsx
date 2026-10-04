@@ -122,7 +122,14 @@ function TradePage() {
         body.append("file", file);
         body.append("tradeId", trade.id);
         const res = await fetch("/api/uploads", { method: "POST", body });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const contentType = res.headers.get("content-type") ?? "";
+          const responseBody = await res.text();
+          const message = contentType.includes("text/html")
+            ? "Your card was submitted, but its photo did not upload. Please contact support before submitting it again."
+            : responseBody.trim() || "The card photo could not be uploaded. Please try again.";
+          throw new Error(message);
+        }
       }
 
       // Tell the desk after everything is stored; a mail hiccup must not fail the trade.
