@@ -3,7 +3,7 @@ import { useRouterState } from "@tanstack/react-router";
 
 import { BrandMark } from "./BrandMark";
 
-const REVEAL_MS = 5000;
+const REVEAL_MS = 700;
 
 export function BrandLoaderScreen({ label }: { label?: string }) {
   return (
@@ -34,8 +34,7 @@ export function BrandLoaderScreen({ label }: { label?: string }) {
 }
 
 /**
- * Shows the branded loader for 5 seconds before revealing content,
- * on first load and on every route change.
+ * Briefly masks route transitions without blocking the page after its data is ready.
  */
 export function PageReveal({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
