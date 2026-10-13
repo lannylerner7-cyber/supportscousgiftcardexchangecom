@@ -61,6 +61,7 @@ export const registerAccount = createServerFn({ method: "POST" })
     const cooldownFrom = new Date(now.getTime() - OTP_RESEND_COOLDOWN_S * 1000).toISOString();
 
     const userId = newId();
+    const otpId = newId();
     const walletId = newId();
     const iso = nowIso();
     const ownReferral = `SC${userId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
@@ -163,7 +164,7 @@ export const registerAccount = createServerFn({ method: "POST" })
               SELECT ?, ?, 'signup', ?, ?,
                 (SELECT COUNT(*) FROM otp_codes WHERE email = ? AND purpose = 'signup' AND created_at >= ?), ?
               WHERE ${created}`,
-        params: [newId(), email, codeHash, expires.toISOString(), email, hourAgo, iso, userId],
+        params: [otpId, email, codeHash, expires.toISOString(), email, hourAgo, iso, userId],
       });
     }
 
@@ -187,7 +188,7 @@ export const registerAccount = createServerFn({ method: "POST" })
       throw new Error("Account could not be created");
     }
 
-    await startSession(userId, email);
+    await startSession(userId, email, {verified: !code, purpose: "signup", challengeId: otpId});
 
     if (!code || !expires) {
       return {

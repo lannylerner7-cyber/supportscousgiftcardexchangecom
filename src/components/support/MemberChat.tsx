@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AlertCircle, Lock, RefreshCw } from "lucide-react";
 
 import { useSession } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { isDenied, supportApi } from "./api";
+import { isDenied, SupportError, supportApi } from "./api";
 import { Conversation, ConversationSkeleton } from "./Conversation";
 
 export const SUPPORT_SUMMARY_KEY = ["support-summary"] as const;
@@ -53,18 +54,60 @@ export function MemberChat({ active = true, className }: { active?: boolean; cla
     queryFn: () => supportApi.open(),
     enabled: !!user && active,
     staleTime: Infinity,
-    retry: (n, e) => !isDenied(e) && n < 2,
+    retry: false,
   });
 
   if (sessionLoading || open.isLoading) return <ConversationSkeleton className={className} />;
 
-  if (!user || (open.error && isDenied(open.error))) {
+  if (!user) {
     return (
       <Notice
         className={className}
         icon={<Lock className="h-5 w-5" />}
         title="Sign in to chat with support"
         body="Your conversation is tied to your account, so we need to know it is you."
+        action={
+          <Link
+            to="/login"
+            search={{ support: "/app/chat" }}
+            className="bg-gold-gradient text-primary-foreground rounded-full px-4 py-2 text-xs font-bold"
+            data-testid="button-support-signin"
+          >
+            Sign in
+          </Link>
+        }
+      />
+    );
+  }
+
+  if (open.error instanceof SupportError && open.error.status === 401) {
+    return (
+      <Notice
+        className={className}
+        icon={<Lock className="h-5 w-5" />}
+        title="Your session has ended"
+        body="Sign in again to continue this conversation."
+        action={
+          <Link
+            to="/login"
+            search={{ support: "/app/chat" }}
+            className="bg-gold-gradient text-primary-foreground rounded-full px-4 py-2 text-xs font-bold"
+            data-testid="button-support-signin"
+          >
+            Sign in again
+          </Link>
+        }
+      />
+    );
+  }
+
+  if (open.error instanceof SupportError && open.error.status === 403) {
+    return (
+      <Notice
+        className={className}
+        icon={<Lock className="h-5 w-5" />}
+        title="Chat access unavailable"
+        body={open.error.message}
       />
     );
   }

@@ -47,7 +47,7 @@ type D1Result = {
   meta?: { changes?: number; last_row_id?: number; rows_written?: number };
 };
 
-async function post(sql: string, params: unknown[], batch?: Statement[]): Promise<D1Result[]> {
+async function post(sql: string, params: unknown[], batch?: Statement[], signal?:AbortSignal): Promise<D1Result[]> {
   const started = performance.now();
   let ok = false;
   try {
@@ -64,7 +64,9 @@ async function post(sql: string, params: unknown[], batch?: Statement[]): Promis
     `${gatewayBase()}/accounts/${accountId}/d1/database/${databaseId}/query`,
     {
       method: "POST",
-      signal: AbortSignal.timeout(15000),
+      signal: signal
+        ? AbortSignal.any([signal,AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000),
       headers,
       body: JSON.stringify(batch
         ? { batch: batch.map(s => ({ sql: s.sql, params: (s.params ?? []).map(bind) })) }
@@ -106,9 +108,10 @@ function bind(value: unknown): string | number | null {
 export async function query<T extends Row = Row>(
   sql: string,
   params: unknown[] = [],
+  signal?:AbortSignal,
 ): Promise<T[]> {
   try {
-    const result = await post(sql, params);
+    const result = await post(sql, params,undefined,signal);
     return (result[result.length - 1]?.results ?? []) as T[];
   } finally {
     if (!/^\s*SELECT\b/i.test(sql)) publicCache.clear();
@@ -119,8 +122,9 @@ export async function query<T extends Row = Row>(
 export async function queryOne<T extends Row = Row>(
   sql: string,
   params: unknown[] = [],
+  signal?:AbortSignal,
 ): Promise<T | null> {
-  const rows = await query<T>(sql, params);
+  const rows = await query<T>(sql, params,signal);
   return rows[0] ?? null;
 }
 

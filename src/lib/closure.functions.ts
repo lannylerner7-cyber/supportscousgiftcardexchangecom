@@ -104,7 +104,7 @@ export const reviewClosure=createServerFn({method:"POST"}).inputValidator((d:unk
     {sql:`UPDATE wallets SET balance_naira=0,locked_naira=0,updated_at=? WHERE user_id=? AND EXISTS(SELECT 1 FROM wallet_transactions WHERE id=?)`,params:[now,id,marker]},
     {sql:`UPDATE profiles SET deleted_at=?,push_enabled=0,updated_at=? WHERE id=? AND EXISTS(SELECT 1 FROM wallet_transactions WHERE id=?)`,params:[now,now,id,marker]},
     {sql:`UPDATE account_closures SET status='closed',note=?,reviewed_at=?,reviewer_id=? WHERE id=? AND EXISTS(SELECT 1 FROM profiles WHERE id=? AND deleted_at IS NOT NULL)`,params:[data.note,now,actor,data.id,id]},
-    ...["sessions","device_push"].map(table=>({sql:`DELETE FROM ${table} WHERE user_id=? AND EXISTS(SELECT 1 FROM account_closures WHERE id=? AND status='closed')`,params:[id,data.id]})),
+    ...["sessions","device_push","trusted_devices"].map(table=>({sql:`DELETE FROM ${table} WHERE user_id=? AND EXISTS(SELECT 1 FROM account_closures WHERE id=? AND status='closed')`,params:[id,data.id]})),
     {sql:`UPDATE otp_codes SET consumed_at=? WHERE email=(SELECT email FROM users WHERE id=?) AND EXISTS(SELECT 1 FROM account_closures WHERE id=? AND status='closed')`,params:[now,id,data.id]},
     {sql:`INSERT INTO closure_mail(id,user_id,kind,next_at) SELECT ?||'-closed',user_id,'closed',? FROM account_closures WHERE id=? AND status='closed' ON CONFLICT(id) DO NOTHING`,params:[data.id,now,data.id]},
     {sql:`INSERT INTO admin_audit_log(id,actor_id,action,target_type,target_id,created_at)

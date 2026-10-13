@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import {DatabaseSync} from "node:sqlite";
 import {readFileSync} from "node:fs";
 import {registerHooks} from "node:module";
-let db,cookie={},mails=[],failMail=false,loseResponse=false,requests=0;
+import {createHash} from "node:crypto";
+let db,cookie={},mails=[],failMail=false,loseResponse=false,requests=0,afterTransaction;
 const objects=new Map();
 globalThis.__supportTest={
   session:()=>({data:cookie}),
   query:async(sql,p=[])=>{requests++;return db.prepare(sql).all(...p);},
-  queryOne:async(sql,p=[])=>{requests++;return db.prepare(sql).get(...p)??null;},
+  queryOne:async(sql,p=[],signal)=>{
+    if(signal?.aborted)throw signal.reason??new DOMException("Aborted","AbortError");
+    requests++;return db.prepare(sql).get(...p)??null;
+  },
   execute:async(sql,p=[])=>{
     requests++;const out=db.prepare(sql).run(...p);
     if(loseResponse&&sql.startsWith("INSERT INTO chat_messages")){loseResponse=false;throw Error("response lost");}
@@ -16,7 +20,11 @@ globalThis.__supportTest={
   },
   transaction:async steps=>{
     requests++;db.exec("BEGIN");
-    try{const out=steps.map(s=>db.prepare(s.sql).all(...(s.params??[])));db.exec("COMMIT");return out;}
+    try{
+      const out=steps.map(s=>db.prepare(s.sql).all(...(s.params??[])));db.exec("COMMIT");
+      const after=afterTransaction;afterTransaction=undefined;if(after)await after();
+      return out;
+    }
     catch(e){db.exec("ROLLBACK");throw e;}
   },
   send:async input=>{mails.push(input);return {sent:!failMail};},
@@ -42,12 +50,14 @@ const sharp=(await import("sharp")).default;
 const member="11111111-1111-4111-8111-111111111111",admin="22222222-2222-4222-8222-222222222222",other="33333333-3333-4333-8333-333333333333";
 function login(id){cookie={userId:id,sessionId:id+"-session"};}
 function setup(){
-  db?.close();db=new DatabaseSync(":memory:");mails=[];objects.clear();failMail=false;loseResponse=false;requests=0;
+  db?.close();db=new DatabaseSync(":memory:");mails=[];objects.clear();failMail=false;loseResponse=false;requests=0;afterTransaction=undefined;
   db.exec(readFileSync(new URL("../src/db/schema.sql",import.meta.url),"utf8"));
   for(const id of [member,admin,other]){
     db.prepare("INSERT INTO users(id,email,password_hash,created_at,updated_at) VALUES(?,?,'fixture','now','now')").run(id,id+"@example.invalid");
     db.prepare("INSERT INTO profiles(id,email,created_at,updated_at) VALUES(?,?,'now','now')").run(id,id+"@example.invalid");
     db.prepare("INSERT INTO sessions VALUES(?,?,'2099-01-01','now')").run(id+"-session",id);
+    db.prepare("INSERT INTO session_security(session_id,verified,remember,purpose,credential_tag) VALUES(?,1,0,'login',?)")
+      .run(id+"-session",createHash("sha256").update("fixture").digest("hex"));
   }
   db.prepare("INSERT INTO user_roles VALUES('admin',?,'admin','now')").run(admin);
   db.exec(`INSERT INTO app_settings(id,alert_emails,updated_at) VALUES(1,'["fixture@example.invalid"]','now')`);
@@ -55,6 +65,41 @@ function setup(){
 }
 const send=(threadId,body="private card code",id=crypto.randomUUID(),imagePath)=>action({action:"send",threadId,body,id,...(imagePath?{imagePath}:{})});
 const count=t=>db.prepare("SELECT count(*) c FROM "+t).get().c;
+test("abandoned open commits atomically, skips follow-up reads, and a retry reuses history",async()=>{
+  setup();
+  const controller=new AbortController();
+  let committed;
+  const committedPromise=new Promise(resolve=>{committed=resolve;});
+  let release;
+  const holdPromise=new Promise(resolve=>{release=resolve;});
+  afterTransaction=async()=>{committed();await holdPromise;};
+  const abandoned=action({action:"open"},controller.signal);
+  await committedPromise;
+  controller.abort();
+  release();
+  await assert.rejects(abandoned,{name:"AbortError"});
+  assert.equal(count("chat_threads"),1);
+  assert.equal(count("support_members"),1);
+  assert.equal(count("support_state"),1);
+  const {thread}=await action({action:"open"});
+  assert.equal(thread.id,`support-${member}`);
+  await send(thread.id,"kept message");
+  const retry=await action({action:"open"});
+  const history=await action({action:"history",threadId:retry.thread.id});
+  assert.equal(retry.thread.id,thread.id);
+  assert.equal(count("chat_threads"),1);
+  assert.equal(history.messages.length,1);
+  assert.equal(history.messages[0].body,"kept message");
+});
+test("an already-aborted open stops before rate limiting or thread creation",async()=>{
+  setup();
+  const controller=new AbortController();
+  controller.abort();
+  const before=requests;
+  await assert.rejects(()=>action({action:"open"},controller.signal),{name:"AbortError"});
+  assert.equal(requests,before);
+  assert.equal(count("chat_threads"),0);
+});
 test("concurrent creation, durable text/image intent, ambiguous retry, read cursors and resolve/reopen",async()=>{
   setup();
   const [{thread:t},{thread:t2}]=await Promise.all([action({action:"open"}),action({action:"open"})]);

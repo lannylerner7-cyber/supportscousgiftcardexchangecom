@@ -7,10 +7,10 @@ export class SupportError extends Error {
   constructor(message:string,status=400){super(message);this.name="SupportError";this.status=status;}
 }
 export type Actor={id:string;admin:boolean;sessionId:string};
-export async function supportActor():Promise<Actor>{
-  const id=await currentUserId();
+export async function supportActor(signal?:AbortSignal):Promise<Actor>{
+  const id=await currentUserId(signal);
   if(!id)throw new SupportError("Please sign in again.",401);
-  return {id,admin:await isAdmin(id),sessionId:(await readSession()).data.sessionId!};
+  return {id,admin:await isAdmin(id,signal),sessionId:(await readSession()).data.sessionId!};
 }
 export async function limit(actor:string,kind:string,max:number,seconds=60){
   const window=Math.floor(Date.now()/(seconds*1000));
@@ -28,8 +28,8 @@ export const threadSelect=`SELECT t.*,p.full_name,COALESCE(s.resolved,0) resolve
    WHERE pr.thread_id=t.id AND pr.until>strftime('%Y-%m-%dT%H:%M:%fZ','now')
    AND se.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND pp.deleted_at IS NULL) joined_until
   FROM chat_threads t JOIN profiles p ON p.id=t.user_id LEFT JOIN support_state s ON s.thread_id=t.id`;
-export async function threadFor(actor:Actor,id:string){
-  const thread=await queryOne(`${threadSelect} WHERE t.id=? AND (t.user_id=? OR ?=1)`,[id,actor.id,+actor.admin]);
+export async function threadFor(actor:Actor,id:string,signal?:AbortSignal){
+  const thread=await queryOne(`${threadSelect} WHERE t.id=? AND (t.user_id=? OR ?=1)`,[id,actor.id,+actor.admin],signal);
   if(!thread)throw new SupportError("Conversation not found.",404);
   return thread;
 }
@@ -46,13 +46,20 @@ const input=z.discriminatedUnion("action",[
   z.object({action:z.literal("join"),threadId:z.string().max(100)}),
   z.object({action:z.literal("resolve"),threadId:z.string().max(100),resolved:z.boolean()}),
 ]);
-export async function supportAction(raw:unknown){
-  const data=input.parse(raw),actor=await supportActor();
+function throwIfAborted(signal?:AbortSignal){
+  if(signal?.aborted)throw signal.reason??new DOMException("The operation was aborted.","AbortError");
+}
+export async function supportAction(raw:unknown,signal?:AbortSignal){
+  const data=input.parse(raw),actor=await supportActor(data.action==="open"?signal:undefined);
+  throwIfAborted(data.action==="open"?signal:undefined);
   await limit(actor.id,"api",180);
+  throwIfAborted(data.action==="open"?signal:undefined);
   if(data.action==="open"){
+    throwIfAborted(signal);
     // A deterministic id prevents duplicate thread creation from concurrent devices.
     // Prefer a pre-existing conversation so legacy history remains accessible.
     const id=`support-${actor.id}`,now=nowIso();
+    // Do not cancel an in-flight atomic batch: its commit may already be durable.
     await transaction([
       {sql:`INSERT INTO chat_threads(id,user_id,last_message_at,created_at)
         SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM chat_threads WHERE user_id=?)
@@ -62,8 +69,11 @@ export async function supportAction(raw:unknown){
         ON CONFLICT DO NOTHING`,params:[actor.id,actor.id]},
       {sql:`INSERT INTO support_state(thread_id) SELECT thread_id FROM support_members WHERE user_id=? ON CONFLICT DO NOTHING`,params:[actor.id]},
     ]);
-    const member=await queryOne<{thread_id:string}>("SELECT thread_id FROM support_members WHERE user_id=?",[actor.id]);
-    return {thread:await threadFor(actor,member!.thread_id)};
+    // If the caller left during the batch, leave the committed thread intact and
+    // skip the follow-up reads. A retry will find the same thread idempotently.
+    throwIfAborted(signal);
+    const member=await queryOne<{thread_id:string}>("SELECT thread_id FROM support_members WHERE user_id=?",[actor.id],signal);
+    return {thread:await threadFor(actor,member!.thread_id,signal)};
   }
   if(data.action==="summary"){
     const row=await queryOne<{unread:number}>(`SELECT COALESCE(SUM(${actor.admin?"unread_for_admin":"unread_for_user"}),0) unread

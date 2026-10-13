@@ -8,14 +8,14 @@
  */
 import { useSession } from "@tanstack/react-start/server";
 
-import { queryOne, execute, nowIso } from "./d1.server";
+import { queryOne, execute, transaction, nowIso } from "./d1.server";
 
 export type SessionData = { userId?: string; email?: string; sessionId?: string };
 
 const COOKIE_NAME = "scous_session";
 const MAX_AGE_S = 60 * 60 * 24 * 30;
 
-function sessionConfig() {
+function sessionConfig(expires?: string) {
   const password = process.env["SESSION_SECRET"];
   if (!password) throw new Error("SESSION_SECRET is not configured");
   return {
@@ -31,6 +31,8 @@ function sessionConfig() {
       sameSite: "none" as const,
       partitioned: true,
       path: "/",
+      // Override h3's default persistent expiry for non-remembered sessions.
+      ...({ expires: expires ? new Date(expires) : undefined } as { expires?: Date }),
     },
   };
 }
@@ -40,33 +42,95 @@ export async function readSession() {
   return session;
 }
 
-export async function startSession(userId: string, email: string) {
+/** Internal only. Password login must explicitly request a pending session. */
+export async function startSession(userId: string, email: string, options: {
+  verified?: boolean; remember?: boolean; purpose?: "login" | "signup";
+  credentialTag?: string; expires?: string; challengeId?: string; fromSessionId?: string;
+} = {}) {
+  const user = await queryOne<{ password_hash: string }>("SELECT password_hash FROM users WHERE id=?", [userId]);
+  if (!user) throw new Error("Account unavailable.");
+  if (options.credentialTag && options.credentialTag !== await sha256Hex(user.password_hash))
+    throw new Error("Credentials changed. Please sign in again.");
+  const verified = options.verified ?? true;
+  const expires = options.expires ?? new Date(Date.now() + (verified ? (options.remember ? MAX_AGE_S : 86400) : 900) * 1000).toISOString();
   const id = crypto.randomUUID();
-  await execute(`INSERT INTO sessions (id,user_id,expires_at,created_at)
-    SELECT ?,id,?,? FROM profiles WHERE id=? AND deleted_at IS NULL`, [
-    id, new Date(Date.now() + MAX_AGE_S * 1000).toISOString(), nowIso(), userId,
+  const previous = await readSession();
+  await transaction([
+    {sql:`INSERT INTO sessions (id,user_id,expires_at,created_at)
+      SELECT ?,p.id,?,? FROM profiles p JOIN users u ON u.id=p.id
+      WHERE p.id=? AND p.deleted_at IS NULL AND u.password_hash=?
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM sessions WHERE id=? AND user_id=p.id AND expires_at>?))`,
+      params:[id, expires, nowIso(), userId,user.password_hash,
+        options.fromSessionId ?? null, options.fromSessionId ?? null, nowIso()]},
+    {sql:`INSERT INTO session_security(session_id,verified,remember,purpose,credential_tag,challenge_id)
+      SELECT id,?,?,?,?,? FROM sessions WHERE id=?`,
+      params:[Number(verified), Number(!!options.remember), options.purpose ?? "login",
+        options.credentialTag ?? await sha256Hex(user.password_hash), options.challengeId ?? null, id]},
+    {sql:"DELETE FROM sessions WHERE id=?",params:[previous.data.sessionId ?? ""]},
   ]);
   if (!await queryOne("SELECT id FROM sessions WHERE id=?", [id]))
     throw new Error("This account is inactive. Contact support to request reactivation.");
-  const session = await readSession();
+  await previous.clear();
+  const session = await useSession<SessionData>(sessionConfig(verified && options.remember ? expires : undefined));
   await session.update({ userId, email, sessionId:id });
 }
 
 export async function endSession() {
+  const { forgetDevice } = await import("./trusted-device.server");
+  await forgetDevice();
   const session = await readSession();
   if (session.data.sessionId) await execute("DELETE FROM sessions WHERE id=?", [session.data.sessionId]);
   await session.clear();
 }
 
 /** Signed-in member id, or null. */
-export async function currentUserId(): Promise<string | null> {
+export async function sessionState(signal?:AbortSignal) {
   const session = await readSession();
   if (!session.data.userId || !session.data.sessionId) return null;
-  const active = await queryOne(`SELECT s.user_id FROM sessions s
+  const active = await queryOne<{
+    user_id: string; email: string; session_id: string; verified: number;
+    remember: number; purpose: string; credential_tag: string; password_hash: string;
+    challenge_id: string | null;
+  }>(`SELECT s.user_id,u.email,k.*,u.password_hash FROM sessions s
     JOIN profiles p ON p.id=s.user_id
+    JOIN users u ON u.id=s.user_id
+    JOIN session_security k ON k.session_id=s.id
     WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND p.deleted_at IS NULL`,
-    [session.data.sessionId, session.data.userId, nowIso()]);
-  return active ? session.data.userId : null;
+    [session.data.sessionId, session.data.userId, nowIso()],signal);
+  return active && active.credential_tag === await sha256Hex(active.password_hash) ? active : null;
+}
+
+/** Signed-in member id, or null. */
+export async function currentUserId(signal?:AbortSignal): Promise<string | null> {
+  const state = await sessionState(signal);
+  return state?.verified === 1 ? state.user_id : null;
+}
+
+export async function pendingSession(email: string, purpose: "login" | "signup") {
+  const state = await sessionState();
+  if (!state || state.verified || state.email !== email || state.purpose !== purpose) {
+    throw new Error("Your verification session has ended. Please start again.");
+  }
+  return state;
+}
+
+export async function finishVerification(email: string, purpose: "login" | "signup") {
+  const pending = await pendingSession(email, purpose);
+  await startSession(pending.user_id, email, {
+    verified: true, remember: !!pending.remember,
+    credentialTag: pending.credential_tag, fromSessionId: pending.session_id,
+  });
+  if (pending.remember) {
+    const { rememberDevice } = await import("./trusted-device.server");
+    await rememberDevice(pending.user_id, pending.credential_tag, (await readSession()).data.sessionId!);
+  }
+}
+
+export async function revokeUserAccess(userId: string) {
+  await transaction([
+    {sql:"DELETE FROM trusted_devices WHERE user_id=?",params:[userId]},
+    {sql:"DELETE FROM sessions WHERE user_id=?",params:[userId]},
+  ]);
 }
 
 export async function requireUserId(): Promise<string> {
@@ -75,10 +139,10 @@ export async function requireUserId(): Promise<string> {
   return userId;
 }
 
-export async function isAdmin(userId: string): Promise<boolean> {
+export async function isAdmin(userId: string,signal?:AbortSignal): Promise<boolean> {
   const row = await queryOne<{ role: string }>(
     "SELECT role FROM user_roles WHERE user_id = ? AND role = 'admin' LIMIT 1",
-    [userId],
+    [userId],signal,
   );
   return Boolean(row);
 }

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 
 import { Label } from "@/components/ui/label";
-import { loginGate, recordLoginAttempt, requestOtp } from "@/lib/auth.functions";
+import { loginGate, requestOtp } from "@/lib/auth.functions";
 import { getAccount, signIn } from "@/lib/account.functions";
 import { useRefreshAccount } from "@/hooks/useAuth";
 import { clearOtpPending, markOtpPending } from "@/lib/otp-gate";
@@ -44,6 +44,7 @@ function Login() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ email: "", password: "" });
+  const [remember, setRemember] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,35 +62,29 @@ function Login() {
         return;
       }
 
-      const attempt = await signIn({ data: { email, password: form.password } });
+      const attempt = await signIn({ data: { email, password: form.password, remember } });
       if (!attempt.ok) {
-        const res = await recordLoginAttempt({ data: { email, succeeded: false } });
-        setNotice(
-          res.locked
-            ? lockMessage(res.until!)
-            : `Wrong password. ${res.remaining} ${res.remaining === 1 ? "try" : "tries"} left before a 30-minute lock.`,
-        );
+        setNotice(attempt.error === "locked"
+          ? "Too many failed attempts. Please try again later."
+          : "Email or password is incorrect. Repeated failures temporarily lock sign-in.");
         return;
       }
 
-      await recordLoginAttempt({ data: { email, succeeded: true } });
       await refreshAccount();
 
       // If the code email can't be requested, still go to the code screen;
       // the member can ask for a new code from there.
-      const otp = await requestOtp({ data: { email, purpose: "login" } }).catch((err) => {
+      const otp = attempt.requiresOtp ? await requestOtp({ data: { email, purpose: attempt.otpPurpose } }).catch((err) => {
         console.error("Login code request failed", err);
         return null;
-      });
+      }) : null;
 
-      // Admins never get a code - the mail allowance is reserved for members.
-      const skipCode =
-        !!otp && otp.ok && (otp.adminBypass || (!otp.delivered && !otp.emailConfigured));
-      if (!skipCode) {
+      // Only the server may decide that this device can skip the login challenge.
+      if (attempt.requiresOtp) {
         markOtpPending(email);
         void navigate({
           to: "/login/verify",
-          search: { email,support, ...(otp?.ok && otp.expiresAt ? { exp: otp.expiresAt } : {}) },
+          search: { email,support,purpose:attempt.otpPurpose, ...(otp?.ok && otp.expiresAt ? { exp: otp.expiresAt } : {}) },
         });
         return;
       }
@@ -153,6 +148,17 @@ function Login() {
 
         </div>
 
+        <div className="space-y-1">
+          <label htmlFor="remember-device" className="flex items-center gap-2 text-sm">
+            <input id="remember-device" type="checkbox" checked={remember}
+              disabled={busy} onChange={e => setRemember(e.target.checked)}
+              aria-describedby="remember-device-help" className="h-4 w-4 accent-primary" />
+            Remember this device for 30 days
+          </label>
+          <p id="remember-device-help" className="text-muted-foreground text-xs">
+            After email verification, skip repeat login codes on this device. Do not use on shared devices.
+          </p>
+        </div>
         <button
           type="submit"
           disabled={busy}

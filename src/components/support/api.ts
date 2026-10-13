@@ -32,6 +32,8 @@ export class SupportError extends Error {
   }
 }
 
+const SUPPORT_OPEN_TIMEOUT_MS = 8_000;
+
 export function isDenied(e: unknown) {
   return e instanceof SupportError && (e.status === 401 || e.status === 403);
 }
@@ -40,34 +42,72 @@ function friendly(status: number, text: string) {
   if (status === 401) return "Your session has ended. Sign in again to continue.";
   if (status === 403) return "You do not have access to this conversation.";
   if (status === 404) return "This conversation could not be found.";
+  if (status === 408 || status === 504) return "Opening support chat took too long. Please retry.";
   if (status === 413) return "That file is too large.";
   if (status === 429) return "Too many requests. Please wait a moment.";
+  if (status >= 500) return "Support chat is temporarily unavailable. Please retry shortly.";
   const t = text.trim();
   if (t && t.length < 160 && !t.startsWith("<")) return t;
   return "Something went wrong. Please try again.";
 }
 
-async function call<T>(payload: Record<string, unknown>): Promise<T> {
-  let res: Response;
+async function call<T>(payload: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+  const isOpen = payload["action"] === "open";
+  const startedAt = performance.now();
+  const controller = timeoutMs ? new AbortController() : undefined;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+
+  const logOpen = (status: number) => {
+    if (isOpen) {
+      console.info("[support-chat] open", {
+        latencyMs: Math.round(performance.now() - startedAt),
+        status,
+      });
+    }
+  };
+
   try {
-    res = await fetch("/api/support", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    throw new SupportError(0, "You appear to be offline. Check your connection.");
+    let res: Response;
+    try {
+      res = await fetch("/api/support", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+    } catch {
+      if (controller?.signal.aborted) {
+        logOpen(408);
+        throw new SupportError(408, friendly(408, ""));
+      }
+      logOpen(0);
+      throw new SupportError(0, "You appear to be offline. Check your connection.");
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      logOpen(res.status);
+      throw new SupportError(res.status, friendly(res.status, text));
+    }
+
+    const result = (await res.json()) as T;
+    logOpen(res.status);
+    return result;
+  } catch (error) {
+    if (controller?.signal.aborted && !(error instanceof SupportError && error.status === 408)) {
+      logOpen(408);
+      throw new SupportError(408, friendly(408, ""));
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new SupportError(res.status, friendly(res.status, text));
-  }
-  return (await res.json()) as T;
 }
 
 export const supportApi = {
-  open: () => call<{ thread: Thread }>({ action: "open" }),
+  open: (timeoutMs = SUPPORT_OPEN_TIMEOUT_MS) =>
+    call<{ thread: Thread }>({ action: "open" }, timeoutMs),
   list: (before?: number) => call<{ threads: Thread[]; hasMore: boolean }>({ action: "list", before }),
   history: (threadId: string, opts: { before?: number; after?: number } = {}) =>
     call<{ messages: Message[]; hasMore: boolean; thread: Thread }>({

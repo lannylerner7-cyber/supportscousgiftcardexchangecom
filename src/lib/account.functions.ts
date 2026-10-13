@@ -105,22 +105,27 @@ export const signUp = createServerFn({ method: "POST" })
 
 /** Check the password and open a session. Lock-out is handled by loginGate. */
 export const signIn = createServerFn({ method: "POST" })
-  .inputValidator((d: { email: string; password: string }) =>
-    z.object({ email: emailSchema, password: z.string().min(1).max(200) }).parse(d),
+  .inputValidator((d: { email: string; password: string; remember?: boolean }) =>
+    z.object({ email: emailSchema, password: z.string().min(1).max(200), remember: z.boolean().default(false) }).parse(d),
   )
   .handler(async ({ data }) => {
-    const { verifyPassword, startSession } = await import("./guard.server");
+    const { verifyPassword, startSession, sha256Hex, isAdmin } = await import("./guard.server");
+    const { forgetDevice, trustedDevice } = await import("./trusted-device.server");
     const { queryOne, execute, nowIso } = await import("./d1.server");
 
     const email = data.email.trim().toLowerCase();
-    const user = await queryOne<{ id: string; password_hash: string }>(
-      `SELECT u.id, u.password_hash FROM users u
+    const { loginGate, recordLoginAttempt } = await import("./auth.functions");
+    const gate = await loginGate({data:{email}});
+    if (!gate.ok) return {ok:false as const, error:gate.error};
+    const user = await queryOne<{ id: string; password_hash: string; is_verified: number }>(
+      `SELECT u.id, u.password_hash, p.is_verified FROM users u
          JOIN profiles p ON p.id = u.id
         WHERE u.email = ? AND p.deleted_at IS NULL LIMIT 1`,
       [email],
     );
     if (!user) return { ok: false as const, error: "bad_credentials" };
     if (!(await verifyPassword(data.password, user.password_hash))) {
+      await recordLoginAttempt({data:{email,succeeded:false}});
       return { ok: false as const, error: "bad_credentials" };
     }
 
@@ -128,15 +133,30 @@ export const signIn = createServerFn({ method: "POST" })
     // only check slowly; re-save them in the current format on first sign-in.
     if (!user.password_hash.startsWith("pbkdf2$100000$")) {
       const { hashPassword } = await import("./guard.server");
-      await execute("UPDATE users SET password_hash = ? WHERE id = ?", [
-        await hashPassword(data.password),
+      const previousHash = user.password_hash;
+      user.password_hash = await hashPassword(data.password);
+      await execute("UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?", [
+        user.password_hash,
         user.id,
+        previousHash,
       ]);
     }
 
     await execute("UPDATE users SET last_sign_in_at = ? WHERE id = ?", [nowIso(), user.id]);
-    await startSession(user.id, email);
-    return { ok: true as const, userId: user.id };
+    const credentialTag = await sha256Hex(user.password_hash);
+    const otpPurpose = user.is_verified ? "login" as const : "signup" as const;
+    const trust = data.remember && user.is_verified ? await trustedDevice(user.id, credentialTag) : null;
+    if (!trust) await forgetDevice();
+    // Preserve the existing server-owned admin exception, never a client role.
+    const admin = await isAdmin(user.id) ||
+      (!!process.env["ADMIN_EMAIL"]?.trim() && process.env["ADMIN_EMAIL"]!.trim().toLowerCase() === email);
+    const requiresOtp = !admin && (otpPurpose === "signup" || !trust);
+    await startSession(user.id, email, {
+      verified: !requiresOtp, remember: data.remember, credentialTag, purpose: otpPurpose,
+      ...(trust ? {expires:trust.expires_at} : {}),
+    });
+    await recordLoginAttempt({data:{email,succeeded:true}});
+    return { ok: true as const, userId: user.id, requiresOtp, otpPurpose };
   });
 
 export const signOut = createServerFn({ method: "POST" }).handler(async () => {
@@ -227,6 +247,9 @@ export const changePassword = createServerFn({ method: "POST" })
       nowIso(),
       userId,
     ]);
+    const { revokeUserAccess, endSession } = await import("./guard.server");
+    await revokeUserAccess(userId);
+    await endSession();
     return { ok: true as const };
   });
 

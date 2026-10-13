@@ -7,9 +7,10 @@ import { OtpForm } from "@/components/OtpForm";
 import { clearOtpPending } from "@/lib/otp-gate";
 import { getAccount } from "@/lib/account.functions";
 import { supportReturn } from "@/lib/support-return";
+import { useRefreshAccount } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/login_/verify")({
-  validateSearch: z.object({ email: z.string().email().optional(), exp: z.string().optional(),support:z.unknown().optional().transform(supportReturn) }),
+  validateSearch: z.object({ email: z.string().email().optional(), exp: z.string().optional(),purpose:z.enum(["login","signup"]).optional(),support:z.unknown().optional().transform(supportReturn) }),
   head: () => ({
     meta: [
       { title: "Confirm it's you — ScousGiftCardExchange" },
@@ -24,8 +25,9 @@ export const Route = createFileRoute("/login_/verify")({
 });
 
 function LoginVerify() {
-  const { email, exp,support } = Route.useSearch();
+  const { email, exp,support,purpose } = Route.useSearch();
   const navigate = useNavigate();
+  const refreshAccount = useRefreshAccount();
 
   if (!email) {
     return (
@@ -43,14 +45,15 @@ function LoginVerify() {
   return (
     <AuthShell
       title="Confirm it's you"
-      subtitle={`We sent a fresh 6-digit code to ${email}. It only works once.`}
+      subtitle={`Enter the 6-digit code emailed to ${email}. If delivery failed, use Send me a new code.`}
     >
       <OtpForm
         email={email}
-        purpose="login"
+        purpose={purpose ?? "login"}
         expiresAt={exp ?? null}
         onVerified={async () => {
           clearOtpPending();
+          await refreshAccount();
           toast.success("Welcome back!");
           const acct = await getAccount().catch(() => null);
           if(support){window.location.assign(support);return;}

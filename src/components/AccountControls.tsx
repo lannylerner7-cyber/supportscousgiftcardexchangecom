@@ -37,7 +37,8 @@ export function AccountControls(){
       <button disabled={busy} className="text-primary" onClick={()=>void run(async()=>{
         const result=await changePassword({data:{currentPassword:old,newPassword:password}});
         if(!result.ok)throw new Error("Current password is incorrect.");setOld("");setPassword("");
-      },"Password updated.")}>Update password</button>
+        qc.clear();window.location.assign("/login");
+      },"Password updated. Sign in again; remembered devices have been cleared.")}>Update password</button>
     </section>
     <DevicePush/>
     <section className="border-destructive/40 bg-surface rounded-2xl border p-5 space-y-3">

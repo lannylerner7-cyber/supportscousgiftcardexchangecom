@@ -1,11 +1,8 @@
 /**
- * Keeps the emailed sign-in code unskippable.
+ * Navigation hint only. Server-side session verification enforces access.
  *
- * Signing in with a password creates a session, but the member is not allowed
- * into the app until the 6-digit code is confirmed. We park a marker in the
- * browser while a code is outstanding; the member area bounces back to the
- * code screen until it is cleared, and the marker only clears when the server
- * accepts the code.
+ * Never use this marker as authentication evidence. Clearing browser storage
+ * cannot promote a pending session or authorize any protected request.
  */
 const KEY = "scous.pending_otp";
 

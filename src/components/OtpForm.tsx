@@ -61,23 +61,29 @@ export function OtpForm({
   async function submit(value: string) {
     setBusy(true);
     setError(null);
-    const res = await verifyOtpCode({ data: { email, purpose, code: value } });
-    setBusy(false);
-    if (!res.ok) {
+    try {
+      const res = await verifyOtpCode({ data: { email, purpose, code: value } });
+      if (!res.ok) {
+        setCode("");
+        const message = ERRORS[res.error] ?? "Couldn't verify that code.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+      await onVerified();
+    } catch {
       setCode("");
-      const message = ERRORS[res.error] ?? "Couldn't verify that code.";
-      setError(message);
-      toast.error(message);
-      return;
+      setError("Verification could not be completed. Retry, or start sign-in again if your session has ended.");
+    } finally {
+      setBusy(false);
     }
-    onVerified();
   }
 
   async function resend() {
     setBusy(true);
     setError(null);
+    try {
     const res = await requestOtp({ data: { email, purpose } });
-    setBusy(false);
     if (!res.ok) {
       toast.error(
         res.error === "cooldown"
@@ -90,7 +96,13 @@ export function OtpForm({
     setCooldown(60);
     setCode("");
     if (res.expiresAt) setDeadline(new Date(res.expiresAt).getTime());
-    toast.success("New code sent.");
+    if (res.delivered) toast.success("New code sent.");
+    else setError("The email could not be delivered. Please wait before retrying. Verification is still required.");
+    } catch {
+      setError("Unable to request a code. Retry shortly, or start sign-in again if your session has ended.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

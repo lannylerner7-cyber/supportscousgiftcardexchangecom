@@ -21,7 +21,7 @@ globalThis.__lifecycle={
 };
 const modules={
   "@tanstack/react-start":`export function createServerFn(){let v;return{inputValidator(f){v=f;return this},handler(f){return x=>f({data:v?v(x?.data):undefined})}}}`,
-  "@tanstack/react-start/server":`export const useSession=async()=>globalThis.__lifecycle.session();export const getRequest=()=>new Request("https://fixture.test/");`,
+  "@tanstack/react-start/server":`export const useSession=async()=>globalThis.__lifecycle.session();export const getRequest=()=>new Request("https://fixture.test/");export const getCookie=()=>undefined;export const setCookie=()=>{};`,
   d1:`export const {query,queryOne,execute,transaction}=globalThis.__lifecycle;export const publicQuery=query;export const nowIso=()=>new Date().toISOString();export const newId=()=>crypto.randomUUID();`,
   push:`export const pushKeys=async()=>({publicKey:"fixture",privateKey:"fixture"});export const webPush={sendNotification:globalThis.__lifecycle.send};`,
 };
@@ -66,10 +66,12 @@ test("closure consent, wrong password, duplicate request, all-session revocation
   const id=await request();await request();
   assert.equal(db.prepare("SELECT count(*) c FROM account_closures").get().c,1);
   await guard.startSession(member,member+"@example.invalid");const oldCookie={...cookie};
+  db.prepare("INSERT INTO trusted_devices VALUES('fixture-hash',?,'fixture-tag','2099-01-01','now')").run(member);
   await adminSession();
   await reviewClosure({data:{id,action:"close",note:"Settlement reviewed; promotional waiver confirmed."}});
   assert.equal(db.prepare("SELECT balance_naira FROM wallets WHERE user_id=?").get(member).balance_naira,0);
   assert.equal(db.prepare("SELECT count(*) c FROM sessions WHERE user_id=?").get(member).c,0);
+  assert.equal(db.prepare("SELECT count(*) c FROM trusted_devices WHERE user_id=?").get(member).c,0);
   assert.ok(db.prepare("SELECT id FROM users WHERE id=?").get(member));
   cookie=oldCookie;assert.equal(await guard.currentUserId(),null);
   await assert.rejects(()=>guard.startSession(member,member+"@example.invalid"),/inactive/);
@@ -185,7 +187,8 @@ test("native registration needs provider setup, is owned, and disappears on sign
     await saveNativePush({data:subscription});
     assert.equal(db.prepare("SELECT count(*) c FROM native_push_devices").get().c,1);
     assert.equal((await nativePushStatus({data:{platform:"android"}})).enabled,true);
-    const original={...cookie};await adminSession();
+    // Switch to a separate browser, not another login in the same browser.
+    const original={...cookie};cookie={};await adminSession();
     await assert.rejects(()=>saveNativePush({data:subscription}),/previous account/);
     cookie=original;
     await removePush({data:{all:true}});

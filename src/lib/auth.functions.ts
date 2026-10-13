@@ -37,6 +37,9 @@ export const requestOtp = createServerFn({ method: "POST" })
     const { sendEmail, otpEmail, emailConfigured } = await import("./email.server");
 
     const email = data.email.trim().toLowerCase();
+    const { pendingSession } = await import("./guard.server");
+    const pending = data.purpose === "login" || data.purpose === "signup"
+      ? await pendingSession(email, data.purpose) : null;
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
 
@@ -60,7 +63,7 @@ export const requestOtp = createServerFn({ method: "POST" })
     // reserved for members, and the password already opened their session.
     const adminEmail = (process.env["ADMIN_EMAIL"] ?? "").trim().toLowerCase();
     const isAdmin = (adminRows ?? []).length > 0 || (Boolean(adminEmail) && adminEmail === email);
-    if (isAdmin && data.purpose !== "reset") {
+    if (isAdmin && data.purpose === "pin") {
       return {
         ok: true as const,
         adminBypass: true as const,
@@ -95,11 +98,12 @@ export const requestOtp = createServerFn({ method: "POST" })
 
     const code = sixDigits();
     const expires = new Date(now.getTime() + OTP_TTL_MIN * 60 * 1000);
+    const otpId = newId();
     await execute(
       `INSERT INTO otp_codes (id, email, purpose, code_hash, expires_at, resend_count, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        newId(),
+        otpId,
         email,
         data.purpose,
         await sha256Hex(`${email}:${code}`),
@@ -108,6 +112,8 @@ export const requestOtp = createServerFn({ method: "POST" })
         nowIso(),
       ],
     );
+    if (pending) await execute("UPDATE session_security SET challenge_id=? WHERE session_id=? AND verified=0",
+      [otpId,pending.session_id]);
 
     const mail = otpEmail(code, data.purpose, OTP_TTL_MIN);
     // Never hold the member on the login screen for a slow mail server:
@@ -140,8 +146,10 @@ export const verifyOtpCode = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { queryOne, execute, nowIso } = await import("./d1.server");
-    const { sha256Hex, timingSafeEqual, startSession } = await import("./guard.server");
+    const { sha256Hex, timingSafeEqual, pendingSession, finishVerification } = await import("./guard.server");
     const email = data.email.trim().toLowerCase();
+    const pending = data.purpose === "login" || data.purpose === "signup"
+      ? await pendingSession(email, data.purpose) : null;
     if (await queryOne("SELECT id FROM profiles WHERE email=? AND deleted_at IS NOT NULL",[email]))
       return {ok:false as const,error:"no_code"};
 
@@ -158,6 +166,7 @@ export const verifyOtpCode = createServerFn({ method: "POST" })
     );
 
     if (!row) return { ok: false as const, error: "no_code" };
+    if (pending && pending.challenge_id !== row.id) return {ok:false as const,error:"no_code"};
     if (new Date(row.expires_at) < new Date()) return { ok: false as const, error: "expired" };
     if (row.attempts >= MAX_ATTEMPTS) return { ok: false as const, error: "attempts" };
 
@@ -218,8 +227,7 @@ export const verifyOtpCode = createServerFn({ method: "POST" })
 
     // A correct login code re-confirms the session that the password opened.
     if (data.purpose === "login" || data.purpose === "signup") {
-      const user = await queryOne<{ id: string }>("SELECT id FROM users WHERE email = ?", [email]);
-      if (user) await startSession(user.id, email);
+      await finishVerification(email, data.purpose);
     }
     return { ok: true as const };
   });
@@ -298,6 +306,11 @@ export const completeSignup = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { execute, nowIso } = await import("./d1.server");
+    const { requireUserId } = await import("./guard.server");
+    const { queryOne } = await import("./d1.server");
+    const id = await requireUserId();
+    if (!await queryOne("SELECT id FROM users WHERE id=? AND email=?", [id,data.email.trim().toLowerCase()]))
+      throw new Error("Account does not match.");
     const { sendEmail, welcomeEmail, emailConfigured } = await import("./email.server");
     const email = data.email.trim().toLowerCase();
 
@@ -365,14 +378,26 @@ export const resetPasswordWithCode = createServerFn({ method: "POST" })
     const user = await queryOne<{ id: string }>(`SELECT u.id FROM users u JOIN profiles p ON p.id=u.id WHERE u.email=? AND p.deleted_at IS NULL`, [email]);
     if (!user) return { ok: false as const, error: "no_code" };
 
-    await execute("UPDATE otp_codes SET consumed_at = ? WHERE id = ?", [nowIso(), row.id]);
-    await execute("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", [
-      await hashPassword(data.password),
-      nowIso(),
-      user.id,
+    const { transaction } = await import("./d1.server");
+    const now = nowIso();
+    const valid = `EXISTS(SELECT 1 FROM otp_codes WHERE id=? AND consumed_at IS NULL
+      AND expires_at>? AND attempts<?)`;
+    const validParams = [row.id,now,MAX_ATTEMPTS];
+    const newHash = await hashPassword(data.password);
+    const reset = await transaction([
+      {sql:`UPDATE users SET password_hash=?,updated_at=? WHERE id=? AND ${valid}`,
+        params:[newHash,now,user.id,...validParams]},
+      {sql:`DELETE FROM trusted_devices WHERE user_id=? AND ${valid}`,params:[user.id,...validParams]},
+      {sql:`DELETE FROM sessions WHERE user_id=? AND ${valid}`,params:[user.id,...validParams]},
+      {sql:`UPDATE otp_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL
+        AND expires_at>? AND attempts<? RETURNING id`,params:[now,...validParams]},
     ]);
+    if (!reset.at(-1)?.length) return {ok:false as const,error:"no_code"};
     // A reset clears any active lock-out so the member can get straight in.
     await execute("UPDATE login_attempts SET locked_until = NULL WHERE email = ?", [email]);
-    await startSession(user.id, email);
+    const { revokeUserAccess, endSession } = await import("./guard.server");
+    await revokeUserAccess(user.id);
+    await endSession();
+    await startSession(user.id, email, {credentialTag: await sha256Hex(newHash)});
     return { ok: true as const };
   });

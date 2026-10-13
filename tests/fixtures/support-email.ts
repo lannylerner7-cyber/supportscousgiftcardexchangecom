@@ -1,4 +1,5 @@
 export * from "../../src/lib/email.server";
+export const emailConfigured=()=>true;
 import {writeFileSync} from "node:fs";
 // Real templates, but all network sends intercepted by this explicit fixture.
 export async function sendEmail(input:unknown){
