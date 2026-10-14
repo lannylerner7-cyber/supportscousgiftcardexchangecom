@@ -14,14 +14,63 @@ approved Coolify rollout, before enabling this version:
 ```sh
 cd artifacts/scous-exchange
 node scripts/apply-support-migration.mjs          # dry run; no database access
-# Only after reviewing/approving the target:
-node scripts/apply-support-migration.mjs --apply
+# Only after explicit outage approval, reviewing the complete SQL and checking
+# the configured account/database against the intended live target:
+node scripts/apply-support-migration.mjs --apply \
+  --confirm-target ACCOUNT_ID/DATABASE_ID \
+  --confirm-sha256 HASH_FROM_DRY_RUN \
+  --accept-database-block \
+  --recovery-file /private/path/new-support-recovery.jsonl
 ```
 
 The migration preserves existing threads/messages, backfills deterministic
 message order, and does not send alerts for old messages. Existing conversations
 remain available; opening member support reuses the earliest existing thread.
-The parser is tested, including CASE statements inside triggers and reapplication.
+The full SQL-file import is tested, including CASE statements inside triggers
+and reapplication. **Cloudflare imports temporarily block ALL database access**,
+including login, trades and other features. Schedule an approved maintenance
+window; do not run this from application startup or a member request.
+
+The runner uses the existing Cloudflare connector/direct/gateway transport for
+API requests. Signed R2 uploads use a separate PUT without API credentials.
+Node 24+, a source checkout and installed dependencies are required. Default
+and `--dry-run` execution are entirely offline and print the exact SQL and its
+SHA256 for review; `--apply` alone cannot write.
+
+Before initialization, the runner captures a fresh Time Travel bookmark and
+flushes it to a new, owner-only recovery file. Choose a durable private location
+**outside the repository** and retain that record. Failure to obtain or save the
+bookmark aborts before import. The record also holds the confirmed target, SQL
+hash, polling bookmarks and final bookmark when supplied. It contains no signed
+upload URLs, provider messages or credentials. Raw provider errors/messages are
+suppressed, including warning text that might contain signed URLs.
+
+The import follows Cloudflare's `init` → optional upload → `ingest` → `poll`
+protocol. Envelope `success` is not import completion: only `status: complete`
+advances to read-only schema verification. An absent status with `at_bookmark`
+means still running. Provider errors, unknown statuses, timeout, or missing
+metadata all fail closed. A completed import with a leftover-buffer warning is
+accepted only after object checks pass. Every support table, index and both full
+trigger definitions are checked, including table constraints. No query-endpoint
+DDL retry or tables-only fallback exists.
+
+If interrupted or timed out, **do not immediately run another import**: it may
+still be running. Use the saved import bookmark for a private, authenticated
+`POST /accounts/{account}/d1/database/{database}/import` with
+`{"action":"poll","current_bookmark":"SAVED_IMPORT_BOOKMARK"}`. If no import
+bookmark was returned (for example, a lost ingest response), inspect Cloudflare's
+database status before deciding whether a retry is safe. Preserve the recovery
+file and rerun `pnpm schema:check` once the import has finished. A recovery
+bookmark is not an automatic rollback: a separately approved Time Travel restore
+can discard writes made since that bookmark and must be within Cloudflare's
+retention window. This runner never restores or retries ingestion automatically.
+
+Isolated migration checks: `node --test tests/support-migration.test.mjs`.
+These tests use mocked HTTP and in-memory SQLite only; they do not run a live
+migration or establish production availability. See Cloudflare's
+[import API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/import/)
+for the protocol. Keep the wider login/support release gate below as a separate
+pre-/post-upgrade check.
 
 ## Persistence and authorization
 
@@ -219,6 +268,15 @@ the automated server tests above, not a new browser interception test.
 Captured mail and queue tests do not establish external email receipt.
 
 ### Live rollout prerequisites
+
+Pass the read-only login/support schema gate in
+[OPERATIONS.md](OPERATIONS.md#login-and-support-schema-release-gate) before
+switching traffic. Run `pnpm schema:check` from the release source checkout
+against the reviewed target before and after any approved upgrade. Both support
+triggers, their definitions, indexes, columns and uniqueness constraints must
+pass; tables alone are not ready. A failed metadata read blocks release without
+changing liveness or applying migrations. This does not verify historical
+backfill completeness.
 
 The separately approved Coolify rollout must apply the additive migration,
 verify private R2 access and runtime Sharp compatibility, and check actual

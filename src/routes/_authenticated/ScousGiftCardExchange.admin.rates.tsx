@@ -9,6 +9,7 @@ import {
   adminListVariants,
   adminSetBrandVisible,
   adminSetRate,
+  adminSetCountryLimits,
   adminSetVariantActive,
 } from "@/lib/admin.people.functions";
 import { BrandLogo } from "@/components/BrandTile";
@@ -34,6 +35,7 @@ function AdminRates() {
   const [brandId, setBrandId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [brandQuery, setBrandQuery] = useState("");
+  const [limits, setLimits] = useState<Record<string, { min: string; max: string }>>({});
 
   const brands = useQuery({
     queryKey: ["admin-brands"],
@@ -75,6 +77,22 @@ function AdminRates() {
     mutationFn: (args: { id: string; next: boolean }) =>
       adminSetVariantActive({ data: { variantId: args.id, active: args.next } }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["admin-variants"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const saveLimits = useMutation({
+    mutationFn: (data: { brandId: string; regionId: string; min: number; max: number }) =>
+      adminSetCountryLimits({ data }),
+    onSuccess: (_, data) => {
+      setLimits(d => {
+        const next = { ...d };
+        delete next[`${data.brandId}:${data.regionId}`];
+        return next;
+      });
+      toast.success("Country limits saved. Other countries and rates are unchanged.");
+      for (const key of ["admin-variants", "market-variants", "rates-table"])
+        void qc.invalidateQueries({ queryKey: [key] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -139,6 +157,41 @@ function AdminRates() {
         ))}
 
       <div className="space-y-2">
+        {variants.isPending && <p className="text-sm">Loading country settings…</p>}
+        {variants.isError && <p role="alert">Could not load country settings. Please refresh.</p>}
+        {[...new Map((variants.data ?? []).map(v => [v.region_id, v])).values()].map(v => {
+          const key = `${active}:${v.region_id}`;
+          const countryVariants = (variants.data ?? []).filter(row => row.region_id === v.region_id);
+          const mixed = countryVariants.some(row => row.min_value !== v.min_value || row.max_value !== v.max_value);
+          const values = limits[key] ?? { min: mixed ? "" : String(v.min_value), max: mixed ? "" : String(v.max_value) };
+          return (
+            <form key={key} className="border-border bg-surface space-y-3 rounded-2xl border p-4"
+              onSubmit={e => {
+                e.preventDefault();
+                if (active) saveLimits.mutate({ brandId: active, regionId: v.region_id, min: Number(values.min), max: Number(values.max) });
+              }}>
+              <p className="text-sm font-semibold">{v.region.flag_emoji} {v.region.name} ({v.region.code}) · Accepted card values</p>
+              <p className="text-muted-foreground text-xs">Applies to physical cards and e-codes for this country only, in {v.region.currency}. Rates are edited separately below.</p>
+              {mixed && <p className="text-xs">Current limits differ by card type. Saving will apply this range to both types.</p>}
+              <div className="flex flex-wrap items-end gap-3">
+                {(["min", "max"] as const).map(field => (
+                  <label key={field} className="text-xs">
+                    {field === "min" ? "Minimum" : "Maximum"} ({v.region.currency})
+                    <input type="number" required min={1} max={5000} step={1}
+                      value={values[field]}
+                      disabled={saveLimits.isPending}
+                      onChange={e => setLimits(d => ({ ...d, [key]: { ...values, [field]: e.target.value } }))}
+                      className="border-border bg-surface-2 mt-1 block w-28 rounded-xl border px-3 py-2 text-sm" />
+                  </label>
+                ))}
+                <button type="submit" disabled={saveLimits.isPending || !values.min || !values.max || Number(values.min) > Number(values.max)}
+                  className="bg-gold-gradient text-primary-foreground rounded-full px-4 py-2 text-xs font-bold disabled:opacity-50">
+                  {saveLimits.isPending ? "Saving…" : "Save country limits"}
+                </button>
+              </div>
+            </form>
+          );
+        })}
         {(variants.data ?? []).map((v) => {
           const r = v.region;
           const key = v.id;

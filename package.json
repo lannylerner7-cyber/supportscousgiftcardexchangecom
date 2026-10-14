@@ -4,6 +4,8 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
+    "schema:check": "node scripts/check-schema-readiness.mjs --check",
+    "test:schema": "node --test tests/schema-readiness.test.mjs",
     "branding:generate": "node scripts/generate-scous-branding.mjs",
     "branding:check": "node scripts/generate-scous-branding.mjs --check && node scripts/check-scous-branding.mjs",
     "native:firebase": "node scripts/prepare-firebase.mjs",

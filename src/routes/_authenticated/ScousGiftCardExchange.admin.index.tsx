@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { adminStats, adminListTrades } from "@/lib/admin.functions";
 import { naira, shortDate } from "@/lib/format";
+import { SUPPORT_SUMMARY_KEY } from "@/components/support/MemberChat";
+import { supportApi } from "@/components/support/api";
 
 export const Route = createFileRoute("/_authenticated/ScousGiftCardExchange/admin/")({
   component: Overview,
@@ -23,6 +25,12 @@ type Stats = {
 };
 
 function Overview() {
+  // The admin shell owns the live subscription; reuse its query without a second stream.
+  const support = useQuery<{ unread: number }>({
+    queryKey: SUPPORT_SUMMARY_KEY,
+    queryFn: () => supportApi.summary(),
+    enabled: false,
+  });
   const stats = useQuery({
     queryKey: ["admin-stats"],
     refetchInterval: 20000,
@@ -53,8 +61,9 @@ function Overview() {
           to="/ScousGiftCardExchange/admin/messages"
           className="border-border/70 bg-surface rounded-2xl border p-5"
         >
-          <p className="font-display text-2xl font-bold">{s?.unread_messages ?? 0}</p>
-          <p className="text-muted-foreground text-xs">New messages</p>
+          <p className="font-display text-2xl font-bold">{support.data?.unread ?? 0}</p>
+          <p className="text-muted-foreground text-xs">Unread support messages</p>
+          <p className="text-muted-foreground mt-1 text-xs">{s?.unread_messages ?? 0} unread contact-form messages</p>
         </Link>
         <Link
           to="/ScousGiftCardExchange/admin/trades"

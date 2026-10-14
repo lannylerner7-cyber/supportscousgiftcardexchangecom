@@ -266,7 +266,7 @@ export const adminListVariants = createServerFn({ method: "GET" })
     await admin();
     const { query, toNaira } = await import("./d1.server");
     const rows = await query<Record<string, unknown>>(
-      `SELECT v.id, v.card_type, v.min_value, v.max_value, v.rate_naira, v.is_active,
+      `SELECT v.id, v.region_id, v.card_type, v.min_value, v.max_value, v.rate_naira, v.is_active,
               r.code, r.name AS region_name, r.currency, r.flag_emoji
          FROM gift_card_variants v
          JOIN gift_card_regions r ON r.id = v.region_id
@@ -276,6 +276,7 @@ export const adminListVariants = createServerFn({ method: "GET" })
     );
     return rows.map((r) => ({
       id: String(r["id"]),
+      region_id: String(r["region_id"]),
       card_type: String(r["card_type"]),
       min_value: toNaira(r["min_value"]),
       max_value: toNaira(r["max_value"]),
@@ -319,6 +320,33 @@ export const adminSetRate = createServerFn({ method: "POST" })
       data.variantId,
     ]);
     await audit(actorId, "set_rate", "variant", data.variantId, { rate: data.rate });
+    return { ok: true as const };
+  });
+
+/** Limits belong to a brand/country pair; rates and other countries are untouched. */
+export const adminSetCountryLimits = createServerFn({ method: "POST" })
+  .inputValidator((d: { brandId: string; regionId: string; min: number; max: number }) =>
+    z.object({
+      brandId: z.string().min(10),
+      regionId: z.string().min(1),
+      min: z.number().int().min(1).max(5000),
+      max: z.number().int().min(1).max(5000),
+    }).refine(d => d.min <= d.max, { message: "Minimum must not exceed maximum." }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const actorId = await admin();
+    const { query, toKobo, nowIso } = await import("./d1.server");
+    const rows = await query<{ id: string }>(
+      `UPDATE gift_card_variants SET min_value = ?, max_value = ?, updated_at = ?
+       WHERE brand_id = ? AND region_id = ? RETURNING id`,
+      [toKobo(data.min), toKobo(data.max), nowIso(), data.brandId, data.regionId],
+    );
+    if (!rows.length) throw new Error("No gift-card variants exist for this country.");
+    const { publicCache } = await import("./public-cache.server");
+    publicCache.clear();
+    await audit(actorId, "set_country_limits", "brand", data.brandId, {
+      regionId: data.regionId, min: data.min, max: data.max,
+    });
     return { ok: true as const };
   });
 

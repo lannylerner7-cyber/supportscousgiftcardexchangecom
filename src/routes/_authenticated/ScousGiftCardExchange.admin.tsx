@@ -12,6 +12,7 @@ import {
 
 import { getAccount } from "@/lib/account.functions";
 import { BrandMark } from "@/components/BrandMark";
+import { useSupportSummary } from "@/components/support/MemberChat";
 
 export const Route = createFileRoute("/_authenticated/ScousGiftCardExchange/admin")({
   beforeLoad: async () => {
@@ -34,6 +35,8 @@ const NAV = [
 ] as const;
 
 function AdminShell() {
+  const summary = useSupportSummary();
+  const unread = summary.data?.unread ?? 0;
   return (
     <div className="mx-auto min-h-dvh w-full max-w-6xl px-4 pb-16">
       <header className="flex items-center justify-between py-5">
@@ -60,6 +63,12 @@ function AdminShell() {
           >
             <n.icon className="h-3.5 w-3.5" />
             {n.label}
+            {n.label === "Messages" && unread > 0 && (
+              <span aria-label={`${unread} unread support messages`} aria-live="polite"
+                className="bg-primary text-primary-foreground rounded-full px-2 py-0.5">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
