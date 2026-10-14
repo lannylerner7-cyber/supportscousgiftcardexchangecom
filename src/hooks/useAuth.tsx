@@ -26,7 +26,18 @@ export function useAccount() {
 /** Call after sign-in, sign-out or a profile change. */
 export function useRefreshAccount() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: ACCOUNT_QUERY_KEY });
+  return async () => {
+    const previous = qc.getQueryData<Account>(ACCOUNT_QUERY_KEY)?.user?.id ?? null;
+    const account = await getAccount();
+    if (previous !== (account.user?.id ?? null)) {
+      await qc.cancelQueries();
+      qc.removeQueries();
+    } else {
+      await qc.invalidateQueries({ queryKey: ["passkey-status"] });
+    }
+    qc.setQueryData(ACCOUNT_QUERY_KEY, account);
+    return account;
+  };
 }
 
 export function useSession() {

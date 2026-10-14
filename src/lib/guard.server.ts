@@ -10,7 +10,7 @@ import { useSession } from "@tanstack/react-start/server";
 
 import { queryOne, execute, transaction, nowIso } from "./d1.server";
 
-export type SessionData = { userId?: string; email?: string; sessionId?: string };
+export type SessionData = { userId?: string; email?: string; sessionId?: string; passkeyId?: string };
 
 const COOKIE_NAME = "scous_session";
 const MAX_AGE_S = 60 * 60 * 24 * 30;
@@ -40,6 +40,14 @@ function sessionConfig(expires?: string) {
 export async function readSession() {
   const session = await useSession<SessionData>(sessionConfig());
   return session;
+}
+
+/** Only publish cookies after the passkey challenge and session transaction commits. */
+export async function publishPasskeySession(data: Required<SessionData>, remember: boolean, expires: string) {
+  const previous = await readSession();
+  await previous.clear();
+  const session = await useSession<SessionData>(sessionConfig(remember ? expires : undefined));
+  await session.update(data);
 }
 
 /** Internal only. Password login must explicitly request a pending session. */
@@ -97,7 +105,20 @@ export async function sessionState(signal?:AbortSignal) {
     JOIN session_security k ON k.session_id=s.id
     WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND p.deleted_at IS NULL`,
     [session.data.sessionId, session.data.userId, nowIso()],signal);
-  return active && active.credential_tag === await sha256Hex(active.password_hash) ? active : null;
+  if (!active || active.credential_tag !== await sha256Hex(active.password_hash)) return null;
+  if (session.data.passkeyId) {
+    if (process.env["PASSKEY_ENABLED"] !== "true") return null;
+    const valid = await queryOne(`SELECT c.id FROM passkey_sessions ps
+      JOIN passkey_credentials c ON c.id=ps.credential_id JOIN profiles p ON p.id=c.user_id
+      WHERE ps.session_id=? AND c.id=? AND c.user_id=? AND c.credential_tag=?
+        AND p.deleted_at IS NULL AND p.frozen_at IS NULL AND p.is_verified=1
+        AND NOT EXISTS(SELECT 1 FROM user_roles WHERE user_id=p.id AND role='admin')
+        AND lower(p.email)!=?`,
+      [session.data.sessionId,session.data.passkeyId,active.user_id,active.credential_tag,
+        (process.env["ADMIN_EMAIL"]||"").trim().toLowerCase()],signal);
+    if (!valid) return null;
+  }
+  return active;
 }
 
 /** Signed-in member id, or null. */

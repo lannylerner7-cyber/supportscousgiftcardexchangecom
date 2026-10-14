@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { AccountControls } from "@/components/AccountControls";
 import { ProfilePhotoControls } from "@/components/ProfilePhoto";
 import { SupportChatButton } from "@/components/support/SupportChatButton";
+import { PasskeySettings } from "@/components/passkeys/PasskeySettings";
 
 export const Route = createFileRoute("/_authenticated/app/settings")({
   component: Settings,
@@ -303,6 +304,7 @@ function Settings() {
         )}
       </section>
 
+      {!isAdmin && <PasskeySettings />}
 
       {isAdmin && (
         <a

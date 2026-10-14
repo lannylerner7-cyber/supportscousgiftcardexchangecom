@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useIsAdmin } from "@/hooks/useAuth";
 import { BrandWordmark } from "./BrandMark";
 import { ProfilePhoto } from "./ProfilePhoto";
+import { PasskeyPrompt } from "./passkeys/PasskeyPrompt";
 
 const TABS = [
   { to: "/app", label: "Home", icon: Home },
@@ -39,7 +40,10 @@ export function MemberShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-3xl px-4 py-6">
+        <PasskeyPrompt />
+        {children}
+      </main>
 
       <nav className="border-border/60 bg-background/90 fixed inset-x-0 bottom-0 z-30 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-stretch justify-between px-2">

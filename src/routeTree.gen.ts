@@ -25,6 +25,7 @@ import { Route as AuthenticatedAppRouteImport } from './routes/_authenticated/ap
 import { Route as ApiAvatarRouteImport } from './routes/api/avatar'
 import { Route as ApiSupportRouteImport } from './routes/api/support'
 import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
+import { Route as LoginPasskeyRouteImport } from './routes/login_.passkey'
 import { Route as LoginVerifyRouteImport } from './routes/login_.verify'
 import { Route as AuthenticatedScousGiftCardExchangeAdminRouteImport } from './routes/_authenticated/ScousGiftCardExchange.admin'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
@@ -127,6 +128,11 @@ const ApiSupportRoute = ApiSupportRouteImport.update({
 const ApiUploadsRoute = ApiUploadsRouteImport.update({
   id: '/api/uploads',
   path: '/api/uploads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginPasskeyRoute = LoginPasskeyRouteImport.update({
+  id: '/login_/passkey',
+  path: '/login/passkey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginVerifyRoute = LoginVerifyRouteImport.update({
@@ -283,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/api/avatar': typeof ApiAvatarRoute
   '/api/support': typeof ApiSupportRoute
   '/api/uploads': typeof ApiUploadsRoute
+  '/login/passkey': typeof LoginPasskeyRoute
   '/login/verify': typeof LoginVerifyRoute
   '/ScousGiftCardExchange/admin': typeof AuthenticatedScousGiftCardExchangeAdminRouteWithChildren
   '/app/chat': typeof AuthenticatedAppChatRoute
@@ -323,6 +330,7 @@ export interface FileRoutesByTo {
   '/api/avatar': typeof ApiAvatarRoute
   '/api/support': typeof ApiSupportRoute
   '/api/uploads': typeof ApiUploadsRoute
+  '/login/passkey': typeof LoginPasskeyRoute
   '/login/verify': typeof LoginVerifyRoute
   '/app/chat': typeof AuthenticatedAppChatRoute
   '/app/notifications': typeof AuthenticatedAppNotificationsRoute
@@ -364,6 +372,7 @@ export interface FileRoutesById {
   '/api/avatar': typeof ApiAvatarRoute
   '/api/support': typeof ApiSupportRoute
   '/api/uploads': typeof ApiUploadsRoute
+  '/login_/passkey': typeof LoginPasskeyRoute
   '/login_/verify': typeof LoginVerifyRoute
   '/_authenticated/ScousGiftCardExchange/admin': typeof AuthenticatedScousGiftCardExchangeAdminRouteWithChildren
   '/_authenticated/app/chat': typeof AuthenticatedAppChatRoute
@@ -407,6 +416,7 @@ export interface FileRouteTypes {
     | '/api/avatar'
     | '/api/support'
     | '/api/uploads'
+    | '/login/passkey'
     | '/login/verify'
     | '/ScousGiftCardExchange/admin'
     | '/app/chat'
@@ -447,6 +457,7 @@ export interface FileRouteTypes {
     | '/api/avatar'
     | '/api/support'
     | '/api/uploads'
+    | '/login/passkey'
     | '/login/verify'
     | '/app/chat'
     | '/app/notifications'
@@ -487,6 +498,7 @@ export interface FileRouteTypes {
     | '/api/avatar'
     | '/api/support'
     | '/api/uploads'
+    | '/login_/passkey'
     | '/login_/verify'
     | '/_authenticated/ScousGiftCardExchange/admin'
     | '/_authenticated/app/chat'
@@ -529,6 +541,7 @@ export interface RootRouteChildren {
   ApiAvatarRoute: typeof ApiAvatarRoute
   ApiSupportRoute: typeof ApiSupportRoute
   ApiUploadsRoute: typeof ApiUploadsRoute
+  LoginPasskeyRoute: typeof LoginPasskeyRoute
   LoginVerifyRoute: typeof LoginVerifyRoute
   ApiFilesSplatRoute: typeof ApiFilesSplatRoute
   ApiPublicHealthRoute: typeof ApiPublicHealthRoute
@@ -646,6 +659,13 @@ declare module '@tanstack/react-router' {
       path: '/api/uploads'
       fullPath: '/api/uploads'
       preLoaderRoute: typeof ApiUploadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login_/passkey': {
+      id: '/login_/passkey'
+      path: '/login/passkey'
+      fullPath: '/login/passkey'
+      preLoaderRoute: typeof LoginPasskeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login_/verify': {
@@ -957,6 +977,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAvatarRoute: ApiAvatarRoute,
   ApiSupportRoute: ApiSupportRoute,
   ApiUploadsRoute: ApiUploadsRoute,
+  LoginPasskeyRoute: LoginPasskeyRoute,
   LoginVerifyRoute: LoginVerifyRoute,
   ApiFilesSplatRoute: ApiFilesSplatRoute,
   ApiPublicHealthRoute: ApiPublicHealthRoute,

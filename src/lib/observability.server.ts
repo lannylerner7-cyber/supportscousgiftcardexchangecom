@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 const context = new AsyncLocalStorage<{ id: string }>();
 const totals = new Map<string, { count: number; errors: number; ms: number; max: number; buckets: number[] }>();
 /** Fixed event names only; never SQL, URLs, user IDs, payloads or provider errors. */
-export function measure(event: "request" | "d1" | "delivery", ms: number, ok: boolean) {
+export function measure(event: "request" | "d1" | "delivery" | "passkey", ms: number, ok: boolean) {
   const total = totals.get(event) ?? { count: 0, errors: 0, ms: 0, max: 0, buckets: [0,0,0,0,0,0] };
   total.count++; total.errors += ok ? 0 : 1; total.ms += ms; total.max = Math.max(total.max, ms);
   const bucket = [10,50,100,500,1000,Infinity].findIndex(bound=>ms<=bound);

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Fingerprint, Loader2 } from "lucide-react";
 
 import { AuthShell } from "@/components/AuthShell";
 import { Input } from "@/components/ui/input";
@@ -167,6 +167,13 @@ function Login() {
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
           Log in
         </button>
+        <div className="flex items-center gap-3 text-muted-foreground text-xs">
+          <span className="bg-border h-px flex-1" />or<span className="bg-border h-px flex-1" />
+        </div>
+        <Link to="/login/passkey" data-testid="link-passkey-login"
+          className="border-border flex w-full items-center justify-center gap-2 rounded-full border py-3 text-sm font-semibold">
+          <Fingerprint className="text-primary h-4 w-4" /> Log in with a passkey
+        </Link>
       </form>
     </AuthShell>
   );
