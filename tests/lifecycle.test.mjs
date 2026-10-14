@@ -87,7 +87,7 @@ test("no consent, real funds, pending activity and last administrator block clos
   assert.equal(closureBlock(0,0,0,0,false,false),null);
   await requestClosure({data:{password,waiveLocked:true,confirmation:"DEACTIVATE"}});
   const adminRequest=db.prepare("SELECT id FROM account_closures WHERE user_id=?").get(admin).id;
-  await assert.rejects(()=>reviewClosure({data:{id:adminRequest,action:"close",note:"Review completed."}}),/last active administrator/);
+  await assert.rejects(()=>reviewClosure({data:{id:adminRequest,action:"close",note:"Review completed."}}),/last active representative/);
   assert.equal(db.prepare("SELECT deleted_at FROM profiles WHERE id=?").get(admin).deleted_at,null);
 });
 test("cleanup write failure rolls back wallet, closure and session revocation together",async()=>{

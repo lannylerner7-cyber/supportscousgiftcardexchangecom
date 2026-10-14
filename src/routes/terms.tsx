@@ -33,7 +33,7 @@ const SECTIONS = [
   },
   {
     h: "Closing your account",
-    p: "Request deactivation in Settings. Withdraw available funds using the usual fee and minimum and settle pending activity before admin approval. Unlocked rewards remain part of your balance; still-locked promotional credit may be waived only with explicit consent. Inactive records are retained for possible reactivation, subject to admin review. Contact support for permanent deletion requests.",
+    p: "Request deactivation in Settings. Withdraw available funds using the usual fee and minimum and settle pending activity before representative approval. Unlocked rewards remain part of your balance; still-locked promotional credit may be waived only with explicit consent. Inactive records are retained for possible reactivation, subject to representative review. Contact support for permanent deletion requests.",
   },
 ];
 

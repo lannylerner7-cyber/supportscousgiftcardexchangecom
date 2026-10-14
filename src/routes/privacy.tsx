@@ -29,7 +29,7 @@ const SECTIONS = [
   },
   {
     h: "Your choices",
-    p: "You can update your details and notification preferences in Settings. Deactivation requires settlement and admin review; records and card evidence are retained for possible reactivation, not permanently erased. For permanent deletion requests or retention questions, contact support@scousgiftcardexchange.com. Ownership verification and applicable record-retention review are required.",
+    p: "You can update your details and notification preferences in Settings. Deactivation requires settlement and representative review; records and card evidence are retained for possible reactivation, not permanently erased. For permanent deletion requests or retention questions, contact support@scousgiftcardexchange.com. Ownership verification and applicable record-retention review are required.",
   },
 ];
 

@@ -88,7 +88,7 @@ export function closureMail(kind:string) {
     ? "We’re sad to see you go. Your Scous account is now inactive. Your records have been retained for possible reactivation; this is not permanent data deletion. Any still-locked promotional credit you explicitly waived will not be restored. To return, request reactivation below."
     : kind==="reactivated"
       ? "Your reactivation request has been approved. Sign in with your password. Device alerts remain off until you enable them again."
-      : "We received your deactivation request. Your available balance must be withdrawn to your linked bank using the usual fee and minimum. Pending activity must settle before admin approval. This message does not confirm a bank payment. Contact support if you cannot settle your balance.";
+      : "We received your deactivation request. Your available balance must be withdrawn to your linked bank using the usual fee and minimum. Pending activity must settle before representative approval. This message does not confirm a bank payment. Contact support if you cannot settle your balance.";
   const link=SITE_ORIGIN+(kind==="closed"?"/account-help":kind==="reactivated"?"/login":"/app/settings");
   const label=kind==="closed"?"Request reactivation":kind==="reactivated"?"Sign in":"View request";
   return {subject:kind==="closed"?"Your Scous account is inactive":kind==="reactivated"?"Welcome back to Scous":"Your Scous deactivation request",

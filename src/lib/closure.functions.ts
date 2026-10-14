@@ -112,6 +112,6 @@ export const reviewClosure=createServerFn({method:"POST"}).inputValidator((d:unk
       params:[newId(),actor,id,now,data.id]},
   ]);
   const result=await queryOne<{status:string}>("SELECT status FROM account_closures WHERE id=?",[data.id]);
-  if(result?.status!=="closed")throw new Error("Closure blocked: settlement changed or this is the last active administrator.");
+  if(result?.status!=="closed")throw new Error("Closure blocked: settlement changed or this is the last active representative.");
   return {ok:true};
 });

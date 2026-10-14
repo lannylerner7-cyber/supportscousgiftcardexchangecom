@@ -81,7 +81,7 @@ export async function supportAction(raw:unknown,signal?:AbortSignal){
     return row;
   }
   if(data.action==="list"||data.action==="diagnostics"){
-    if(!actor.admin)throw new SupportError("Admin access required.",403);
+    if(!actor.admin)throw new SupportError("Representative access required.",403);
     if(data.action==="diagnostics")return await queryOne(`SELECT
       SUM(CASE WHEN sent_at IS NULL AND attempts<5 THEN 1 ELSE 0 END) pending,
       SUM(CASE WHEN sent_at IS NULL AND attempts>=5 THEN 1 ELSE 0 END) exhausted FROM support_mail`);
@@ -134,7 +134,7 @@ export async function supportAction(raw:unknown,signal?:AbortSignal){
     ]);
     return {ok:true};
   }
-  if(!actor.admin)throw new SupportError("Admin access required.",403);
+  if(!actor.admin)throw new SupportError("Representative access required.",403);
   if(data.action==="join"){
     await execute(`INSERT INTO support_presence(thread_id,session_id,until) VALUES(?,?,?)
       ON CONFLICT(thread_id,session_id) DO UPDATE SET until=excluded.until`,[data.threadId,actor.sessionId,new Date(Date.now()+45000).toISOString()]);

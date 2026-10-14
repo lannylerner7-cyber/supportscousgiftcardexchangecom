@@ -309,7 +309,7 @@ function Settings() {
           href="/ScousGiftCardExchange/admin"
           className="border-primary/40 bg-primary/10 text-primary flex items-center justify-center gap-2 rounded-2xl border py-3.5 text-sm font-semibold"
         >
-          <Shield className="h-4 w-4" /> Open admin panel
+          <Shield className="h-4 w-4" /> Open representative panel
         </a>
       )}
 

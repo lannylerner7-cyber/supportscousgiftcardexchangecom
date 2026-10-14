@@ -45,10 +45,10 @@ export function AccountControls(){
     <DevicePush/>
     <section className="border-destructive/40 bg-surface rounded-2xl border p-5 space-y-3">
       <h2 className="font-semibold">Deactivate account</h2>
-      <p className="text-sm text-muted-foreground">Your records and card evidence are retained for possible reactivation, not permanently erased. Admin approval is required. Withdraw your available balance to your linked bank first; normal fees and minimums apply. If below the minimum, contact support. Pending trades, withdrawals and disputes must settle. We will email you when closure is approved.</p>
+      <p className="text-sm text-muted-foreground">Your records and card evidence are retained for possible reactivation, not permanently erased. Representative approval is required. Withdraw your available balance to your linked bank first; normal fees and minimums apply. If below the minimum, contact support. Pending trades, withdrawals and disputes must settle. We will email you when closure is approved.</p>
       <p className="text-sm">Unlocked rewards remain part of your balance. Only still-locked promotional credit may be waived.</p>
       <a href="/account-help" className="text-primary text-sm">Deletion, deactivation and reactivation help</a>
-      {closure.data?.status==="requested"?<div><p role="status">Your request is awaiting admin review. {closure.data.note}</p>
+      {closure.data?.status==="requested"?<div><p role="status">Your request is awaiting representative review. {closure.data.note}</p>
         <button disabled={busy} className="text-primary mt-3 text-sm" onClick={()=>void run(async()=>{await cancelClosure();await closure.refetch();},"Request cancelled.")}>Cancel deactivation request</button></div>:<>
         <label className="flex gap-3 text-sm"><input type="checkbox" checked={waive} onChange={e=>setWaive(e.target.checked)}/>I agree to give up any still-locked promotional credit when closure is approved. This waived credit will not be restored.</label>
         <label className="block text-sm">Confirm your password<input type="password" autoComplete="current-password" className={input} value={closePassword} onChange={e=>setClosePassword(e.target.value)}/></label>
@@ -56,7 +56,7 @@ export function AccountControls(){
         <button disabled={busy||confirm!=="DEACTIVATE"} className="text-destructive" onClick={()=>void run(async()=>{
           await requestClosure({data:{password:closePassword,waiveLocked:waive,confirmation:"DEACTIVATE"}});
           setClosePassword("");setConfirm("");await closure.refetch();
-        },"Request saved. Your account remains available for settlement until admin approval.")}>Request deactivation</button>
+        },"Request saved. Your account remains available for settlement until representative approval.")}>Request deactivation</button>
       </>}
     </section>
     {message&&<p role="status" className="text-sm">{message}</p>}

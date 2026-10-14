@@ -30,7 +30,7 @@ function AdminAudit() {
           </div>
         ))}
         {!rows.isLoading && (rows.data ?? []).length === 0 && (
-          <p className="text-muted-foreground text-sm">No admin actions recorded yet.</p>
+          <p className="text-muted-foreground text-sm">No representative actions recorded yet.</p>
         )}
       </div>
     </div>

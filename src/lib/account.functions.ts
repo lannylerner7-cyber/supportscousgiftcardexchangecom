@@ -266,5 +266,5 @@ export const deleteAccount = createServerFn({ method: "POST" })
     const { requireUserId } = await import("./guard.server");
 
     await requireUserId();
-    throw new Error("Use Settings to submit an admin-reviewed deactivation request. Direct deletion is disabled.");
+    throw new Error("Use Settings to submit a representative-reviewed deactivation request. Direct deletion is disabled.");
   });

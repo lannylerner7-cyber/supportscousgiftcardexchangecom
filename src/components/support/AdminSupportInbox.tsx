@@ -324,8 +324,8 @@ function ThreadHeader({
           {live
             ? joined
               ? `You are shown as joined · renews while this tab is open`
-              : `An admin is joined · expires in ${secs}s unless renewed`
-            : "No admin joined · member sees no presence"}
+              : `A representative has joined · expires in ${secs}s unless renewed`
+            : "No representative joined · member sees no presence"}
         </p>
       </div>
       {joined ? (

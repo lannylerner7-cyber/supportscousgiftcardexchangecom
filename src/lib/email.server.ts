@@ -341,7 +341,7 @@ export function tradeAlertEmail(input: {
       preheader: `${input.member} submitted ${input.brand} ${input.faceValue}`,
       heading: "New card awaiting review",
       bodyHtml,
-      footerNote: "You are receiving this because this address is set as an alert address in the admin console.",
+      footerNote: "You are receiving this because this address is set as an alert address in the representative console.",
     }),
     text: `New card awaiting review\n\nMember: ${input.member} (${input.email}, ${input.phone})\nCard: ${input.brand} ${input.region} ${input.cardType}\nFace value: ${input.faceValue}\nExpected payout: ${input.payout}\nProof images: ${input.images}\nReference: ${input.reference}\n\n${input.link}`,
   };
@@ -382,7 +382,7 @@ export function withdrawalAlertEmail(input: {
       preheader: `${input.member} requested ${input.amount}`,
       heading: "Withdrawal requested",
       bodyHtml,
-      footerNote: "You are receiving this because this address is set as an alert address in the admin console.",
+      footerNote: "You are receiving this because this address is set as an alert address in the representative console.",
     }),
     text: `Withdrawal requested\n\nMember: ${input.member} (${input.email}, ${input.phone})\nAmount: ${input.amount}\nFee: ${input.fee}\nSend to bank: ${input.net}\nBank: ${input.bankName}\nAccount number: ${input.accountNumber}\nAccount name: ${input.accountName}\nReference: ${input.reference}\n\n${input.link}`,
   };
@@ -405,7 +405,7 @@ export function contactAlertEmail(input: { name: string; email: string; message:
       preheader: input.message.slice(0, 90),
       heading: "New website message",
       bodyHtml,
-      footerNote: "You are receiving this because this address is set as an alert address in the admin console.",
+      footerNote: "You are receiving this because this address is set as an alert address in the representative console.",
     }),
     text: `New website message\n\nFrom: ${input.name} (${input.email})\n\n${input.message}`,
   };
@@ -418,17 +418,17 @@ export function testEmail() {
       preheader: "Your mail settings are working.",
       heading: "Mail settings test",
       bodyHtml: paragraph(
-        "This is a test message from your admin console. If you can read it, sign-in codes and alerts will reach your members.",
+        "This is a test message from your representative console. If you can read it, sign-in codes and alerts will reach your members.",
       ),
-      footerNote: "You are receiving this because you pressed Send test email in the admin console.",
+      footerNote: "You are receiving this because you pressed Send test email in the representative console.",
     }),
-    text: `Mail settings test\n\nThis is a test message from your admin console. If you can read it, sign-in codes and alerts will reach your members.\n\n${BRAND}`,
+    text: `Mail settings test\n\nThis is a test message from your representative console. If you can read it, sign-in codes and alerts will reach your members.\n\n${BRAND}`,
   };
 }
 
 /** No private message content, member identity, codes or attachments in alerts. */
 export function supportAlertEmail(link:string) {
-  const intro="A member sent a new support message. Sign in as an administrator to view the conversation.";
+  const intro="A member sent a new support message. Sign in as a representative to view the conversation.";
   return {
     subject:"New Scous support message",
     text:`${intro}\n\n${link}`,
@@ -436,7 +436,7 @@ export function supportAlertEmail(link:string) {
       preheader:"A support conversation has a new message.",
       heading:"New support message",
       bodyHtml:`${paragraph(intro)}<p><a href="${esc(link)}">Open secure conversation</a></p>`,
-      footerNote:"You receive this alert because your address is configured in the admin console.",
+      footerNote:"You receive this alert because your address is configured in the representative console.",
     }),
   };
 }

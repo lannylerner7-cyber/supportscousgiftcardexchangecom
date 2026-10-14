@@ -21,8 +21,8 @@ export const sendReactivationCode=createServerFn({method:"POST"}).inputValidator
   if(rows[0]?.length){
     const {sendEmail}=await import("./email.server");
     const result=await sendEmail({to:email,subject:"Verify your Scous reactivation request",
-      text:`Your reactivation verification code is ${code}. It expires in five minutes. Admin approval is still required. Ignore this email if you did not request it.`,
-      html:`<h1>Scous account reactivation</h1><p>Your verification code is <strong>${code}</strong>.</p><p>It expires in five minutes. Admin approval is still required. Ignore this email if you did not request it.</p>`});
+      text:`Your reactivation verification code is ${code}. It expires in five minutes. Representative approval is still required. Ignore this email if you did not request it.`,
+      html:`<h1>Scous account reactivation</h1><p>Your verification code is <strong>${code}</strong>.</p><p>It expires in five minutes. Representative approval is still required. Ignore this email if you did not request it.</p>`});
     if(!result.sent)throw new Error("Verification email could not be sent. Please retry later or contact support.");
   }
   return {ok:true};

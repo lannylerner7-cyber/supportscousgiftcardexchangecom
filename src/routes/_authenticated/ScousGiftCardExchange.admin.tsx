@@ -43,7 +43,7 @@ function AdminShell() {
         <div className="flex items-center gap-3">
           <BrandMark className="h-9 w-9" />
           <div>
-            <p className="font-display text-base font-bold">Admin console</p>
+            <p className="font-display text-base font-bold">Representative console</p>
             <p className="text-muted-foreground text-xs">ScousGiftCardExchange</p>
           </div>
         </div>

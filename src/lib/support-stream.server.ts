@@ -95,7 +95,7 @@ export class SupportHub {
   }
   async connect(actor:Actor,threadId:string,after:number,signal:AbortSignal){
     if(threadId==="inbox"){
-      if(!actor.admin)throw new SupportError("Admin access required.",403);
+      if(!actor.admin)throw new SupportError("Representative access required.",403);
     }else if(threadId!=="summary")await threadFor(actor,threadId);
     await limit(actor.id,"stream",20);
     if(this.subscribers.size>=128||[...this.subscribers.values()].filter(s=>s.actor.id===actor.id).length>=4)

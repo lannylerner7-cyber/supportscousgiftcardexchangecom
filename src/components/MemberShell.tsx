@@ -32,7 +32,7 @@ export function MemberShell({ children }: { children: ReactNode }) {
               className="border-primary bg-primary/10 text-primary flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold"
             >
               <ShieldCheck className="h-3.5 w-3.5" />
-              Admin console
+              Representative console
             </Link>
           )}
           <Link to="/app/settings" aria-label="Account settings"><ProfilePhoto /></Link>
