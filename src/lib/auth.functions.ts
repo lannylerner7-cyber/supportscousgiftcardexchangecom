@@ -257,48 +257,6 @@ export const loginGate = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
-/** Record a login outcome; three failures in 15 minutes locks for 30. */
-export const recordLoginAttempt = createServerFn({ method: "POST" })
-  .inputValidator((d: { email: string; succeeded: boolean }) =>
-    z.object({ email: z.string().email(), succeeded: z.boolean() }).parse(d),
-  )
-  .handler(async ({ data }) => {
-    const { queryOne, execute, newId, nowIso } = await import("./d1.server");
-    const email = data.email.trim().toLowerCase();
-    const now = new Date();
-
-    if (data.succeeded) {
-      await execute(
-        "INSERT INTO login_attempts (id, email, succeeded, created_at) VALUES (?, ?, 1, ?)",
-        [newId(), email, nowIso()],
-      );
-      return { locked: false as const, until: null, remaining: 3 };
-    }
-
-    const windowStart = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
-    const fails = await queryOne<{ c: number }>(
-      `SELECT COUNT(*) AS c FROM login_attempts
-        WHERE email = ? AND succeeded = 0 AND created_at >= ?`,
-      [email, windowStart],
-    );
-
-    const failures = (fails?.c ?? 0) + 1;
-    const lockedUntil =
-      failures >= 3 ? new Date(now.getTime() + 30 * 60 * 1000).toISOString() : null;
-
-    await execute(
-      `INSERT INTO login_attempts (id, email, succeeded, locked_until, created_at)
-       VALUES (?, ?, 0, ?, ?)`,
-      [newId(), email, lockedUntil, nowIso()],
-    );
-
-    return {
-      locked: Boolean(lockedUntil),
-      until: lockedUntil,
-      remaining: Math.max(0, 3 - failures),
-    };
-  });
-
 /** Finish signup: welcome email + verification fallback when mail is unavailable. */
 export const completeSignup = createServerFn({ method: "POST" })
   .inputValidator((d: { email: string; fullName: string }) =>

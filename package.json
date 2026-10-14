@@ -4,6 +4,8 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
+    "branding:generate": "node scripts/generate-scous-branding.mjs",
+    "branding:check": "node scripts/generate-scous-branding.mjs --check && node scripts/check-scous-branding.mjs",
     "native:firebase": "node scripts/prepare-firebase.mjs",
     "native:firebase:check": "node scripts/prepare-firebase.mjs --check-only --check-server",
     "native:firebase:auth": "node scripts/check-fcm-auth.mjs",

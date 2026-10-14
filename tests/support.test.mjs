@@ -4,7 +4,7 @@ import {DatabaseSync} from "node:sqlite";
 import {readFileSync} from "node:fs";
 import {registerHooks} from "node:module";
 import {createHash} from "node:crypto";
-let db,cookie={},mails=[],failMail=false,loseResponse=false,requests=0,afterTransaction;
+let db,cookie={},mails=[],failMail=false,loseResponse=false,requests=0,afterTransaction,failPut=false,losePut=false,failDelete=false;
 const objects=new Map();
 globalThis.__supportTest={
   session:()=>({data:cookie}),
@@ -28,18 +28,25 @@ globalThis.__supportTest={
     catch(e){db.exec("ROLLBACK");throw e;}
   },
   send:async input=>{mails.push(input);return {sent:!failMail};},
-  put:async(key,bytes,type)=>objects.set(key,{bytes,type}),
-  remove:async key=>objects.delete(key),
+  put:async(key,bytes,type)=>{
+    if(failPut){failPut=false;throw Error("storage unavailable");}
+    objects.set(key,{bytes,type});
+    if(losePut){losePut=false;throw Error("storage response lost");}
+  },
+  remove:async key=>{if(failDelete)throw Error("delete unavailable");objects.delete(key);},
+  get:async key=>{const object=objects.get(key);return object?{body:object.bytes,contentType:object.type}:null;},
 };
 const modules={
   "@tanstack/react-start/server":`export const useSession=async()=>globalThis.__supportTest.session();`,
+  "@tanstack/react-router":`export const createFileRoute=()=>options=>options;`,
   d1:`export const {query,queryOne,execute,transaction}=globalThis.__supportTest;export const nowIso=()=>new Date().toISOString();`,
   email:`export const sendEmail=globalThis.__supportTest.send;export const supportAlertEmail=link=>({subject:"New support message",text:link,html:link});`,
-  r2:`export const putObject=globalThis.__supportTest.put;export const deleteObject=globalThis.__supportTest.remove;`,
+  r2:`export const putObject=globalThis.__supportTest.put;export const deleteObject=globalThis.__supportTest.remove;export const getObject=globalThis.__supportTest.get;`,
 };
 registerHooks({resolve(s,c,next){
   const key=s.includes("d1.server")?"d1":s.includes("email.server")?"email":s.includes("r2.server")?"r2":s;
   if(modules[key])return {url:"data:text/javascript,"+encodeURIComponent(modules[key]),shortCircuit:true};
+  if(s.startsWith("@/"))return next(new URL("../src/"+s.slice(2)+".ts",import.meta.url).href,c);
   try{return next(s,c);}catch(e){if(s.startsWith(".")&&!s.endsWith(".ts"))return next(s+".ts",c);throw e;}
 }});
 const {supportAction:action,supportActor,limit}=await import("../src/lib/support.server.ts");
@@ -50,7 +57,7 @@ const sharp=(await import("sharp")).default;
 const member="11111111-1111-4111-8111-111111111111",admin="22222222-2222-4222-8222-222222222222",other="33333333-3333-4333-8333-333333333333";
 function login(id){cookie={userId:id,sessionId:id+"-session"};}
 function setup(){
-  db?.close();db=new DatabaseSync(":memory:");mails=[];objects.clear();failMail=false;loseResponse=false;requests=0;afterTransaction=undefined;
+  db?.close();db=new DatabaseSync(":memory:");mails=[];objects.clear();failMail=false;loseResponse=false;requests=0;afterTransaction=undefined;failPut=false;losePut=false;failDelete=false;
   db.exec(readFileSync(new URL("../src/db/schema.sql",import.meta.url),"utf8"));
   for(const id of [member,admin,other]){
     db.prepare("INSERT INTO users(id,email,password_hash,created_at,updated_at) VALUES(?,?,'fixture','now','now')").run(id,id+"@example.invalid");
@@ -65,6 +72,80 @@ function setup(){
 }
 const send=(threadId,body="private card code",id=crypto.randomUUID(),imagePath)=>action({action:"send",threadId,body,id,...(imagePath?{imagePath}:{})});
 const count=t=>db.prepare("SELECT count(*) c FROM "+t).get().c;
+test("private image endpoint checks ownership, tombstones, current roles and revoked sessions",async()=>{
+  setup();const {Route}=await import("../src/routes/api/files/$.ts");
+  const get=key=>Route.server.handlers.GET({params:{_splat:key}});
+  const {thread}=await action({action:"open"});
+  const image=await sharp({create:{width:2,height:2,channels:3,background:"red"}}).png().toBuffer();
+  const uploaded=await uploadSupportImage(thread.id,crypto.randomUUID(),image.buffer.slice(image.byteOffset,image.byteOffset+image.byteLength));
+  await send(thread.id,"",crypto.randomUUID(),uploaded.path);
+  const response=await get(uploaded.path);
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get("cache-control"),"private, no-store");
+  assert.equal(response.headers.get("content-type"),"image/webp");
+  assert.equal(response.headers.get("x-content-type-options"),"nosniff");
+  login(other);assert.equal((await get(uploaded.path)).status,404);
+  login(admin);assert.equal((await get(uploaded.path)).status,200);
+  db.prepare("UPDATE support_attachments SET ready=-1 WHERE path=?").run(uploaded.path);
+  assert.equal((await get(uploaded.path)).status,404);
+  db.prepare("UPDATE support_attachments SET ready=1 WHERE path=?").run(uploaded.path);
+  db.prepare("DELETE FROM user_roles WHERE user_id=?").run(admin);
+  assert.equal((await get(uploaded.path)).status,404);
+  login(member);db.prepare("DELETE FROM sessions WHERE user_id=?").run(member);
+  assert.equal((await get(uploaded.path)).status,401);
+  login(other);
+  assert.equal((await get(uploaded.path.replace(/[^/]+$/,"missing.webp"))).status,404);
+});
+test("upload endpoint rejects oversized, forged and malformed photos before reserving storage",async()=>{
+  setup();const {Route}=await import("../src/routes/api/uploads.ts");
+  const post=request=>Route.server.handlers.POST({request});
+  assert.equal((await post(new Request("http://localhost/api/uploads",{
+    method:"POST",headers:{"content-length":String(12*1024*1024)},body:"x",
+  }))).status,413);
+  const {thread}=await action({action:"open"});
+  for(const [type,bytes] of [
+    ["image/svg+xml","<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>"],
+    ["image/png","<svg/>"],
+    ["image/png",new Uint8Array([137,80,78,71,13,10,26,10,0])],
+  ]){
+    const form=new FormData();form.append("threadId",thread.id);
+    form.append("attachmentId",crypto.randomUUID());
+    form.append("file",new Blob([bytes],{type}),"photo.png");
+    assert.equal((await post(new Request("http://localhost/api/uploads",{method:"POST",body:form}))).status,400);
+  }
+  assert.equal(count("support_attachments"),0);assert.equal(objects.size,0);
+});
+test("failed and ambiguous image uploads retry safely, strip metadata, and preserve committed evidence",async()=>{
+  setup();const {thread}=await action({action:"open"});
+  const image=await sharp({create:{width:2000,height:20,channels:3,background:"blue"}})
+    .jpeg().withMetadata({exif:{IFD0:{Artist:"private metadata"}}}).toBuffer();
+  const bytes=image.buffer.slice(image.byteOffset,image.byteOffset+image.byteLength);
+  const id=crypto.randomUUID();
+  failPut=true;
+  await assert.rejects(uploadSupportImage(thread.id,id,bytes),/storage unavailable/);
+  assert.equal(count("support_attachments"),1);assert.equal(objects.size,0);
+  losePut=true;
+  await assert.rejects(uploadSupportImage(thread.id,id,bytes),/response lost/);
+  assert.equal(objects.size,1);
+  const result=await uploadSupportImage(thread.id,id,bytes);
+  assert.equal(count("support_attachments"),1);
+  const metadata=await sharp(Buffer.from(objects.get(result.path).bytes)).metadata();
+  assert.equal(metadata.format,"webp");assert.equal(metadata.width,1800);
+  assert.equal(metadata.exif,undefined);assert.equal(metadata.xmp,undefined);
+  const messageId=crypto.randomUUID();loseResponse=true;
+  await assert.rejects(send(thread.id,"",messageId,result.path),/response lost/);
+  await send(thread.id,"",messageId,result.path);
+  assert.equal(count("chat_messages"),1);assert.equal(count("support_mail"),1);
+  const orphanId=crypto.randomUUID();
+  const orphan=await uploadSupportImage(thread.id,orphanId,bytes);
+  db.exec("UPDATE support_attachments SET created_at='2000-01-01'");
+  failDelete=true;await cleanSupportOrphans();
+  assert.equal(db.prepare("SELECT ready FROM support_attachments WHERE id=?").get(orphanId).ready,-1);
+  await assert.rejects(uploadSupportImage(thread.id,orphanId,bytes),/expired/);
+  failDelete=false;await cleanSupportOrphans();
+  assert.ok(!objects.has(orphan.path));assert.ok(objects.has(result.path));
+  assert.equal((await action({action:"history",threadId:thread.id})).messages[0].image_path,result.path);
+});
 test("abandoned open commits atomically, skips follow-up reads, and a retry reuses history",async()=>{
   setup();
   const controller=new AbortController();

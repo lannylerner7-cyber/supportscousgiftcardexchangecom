@@ -4,6 +4,7 @@ import {getAccount,updateProfile,changePassword} from "@/lib/account.functions";
 import {closureStatus,requestClosure,cancelClosure} from "@/lib/closure.functions";
 import {setSoundEnabled} from "@/lib/sounds";
 import {DevicePush} from "./DevicePush";
+import {RememberedDevices} from "./RememberedDevices";
 import {toast} from "sonner";
 export function AccountControls(){
   const qc=useQueryClient(),account=useQuery({queryKey:["settings-account"],queryFn:()=>getAccount()});
@@ -40,6 +41,7 @@ export function AccountControls(){
         qc.clear();window.location.assign("/login");
       },"Password updated. Sign in again; remembered devices have been cleared.")}>Update password</button>
     </section>
+    {account.data?.user && <RememberedDevices key={account.data.user.id} userId={account.data.user.id}/>}
     <DevicePush/>
     <section className="border-destructive/40 bg-surface rounded-2xl border p-5 space-y-3">
       <h2 className="font-semibold">Deactivate account</h2>

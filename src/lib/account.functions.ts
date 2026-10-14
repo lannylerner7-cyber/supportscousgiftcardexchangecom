@@ -114,7 +114,8 @@ export const signIn = createServerFn({ method: "POST" })
     const { queryOne, execute, nowIso } = await import("./d1.server");
 
     const email = data.email.trim().toLowerCase();
-    const { loginGate, recordLoginAttempt } = await import("./auth.functions");
+    const { loginGate } = await import("./auth.functions");
+    const { recordLoginAttempt } = await import("./login-attempts.server");
     const gate = await loginGate({data:{email}});
     if (!gate.ok) return {ok:false as const, error:gate.error};
     const user = await queryOne<{ id: string; password_hash: string; is_verified: number }>(
@@ -125,7 +126,7 @@ export const signIn = createServerFn({ method: "POST" })
     );
     if (!user) return { ok: false as const, error: "bad_credentials" };
     if (!(await verifyPassword(data.password, user.password_hash))) {
-      await recordLoginAttempt({data:{email,succeeded:false}});
+      await recordLoginAttempt(email, false);
       return { ok: false as const, error: "bad_credentials" };
     }
 
@@ -155,7 +156,7 @@ export const signIn = createServerFn({ method: "POST" })
       verified: !requiresOtp, remember: data.remember, credentialTag, purpose: otpPurpose,
       ...(trust ? {expires:trust.expires_at} : {}),
     });
-    await recordLoginAttempt({data:{email,succeeded:true}});
+    await recordLoginAttempt(email, true);
     return { ok: true as const, userId: user.id, requiresOtp, otpPurpose };
   });
 

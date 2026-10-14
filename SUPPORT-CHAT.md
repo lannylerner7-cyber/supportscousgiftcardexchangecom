@@ -144,7 +144,7 @@ measurements, not a production guarantee. A closed-badge delay exposed by the
 browser was changed from fallback-only polling to shared-hub SSE and covered by
 a focused server regression test plus type checking.
 
-Browser pagination, a physically separate device, a real Android software
+At that earlier verification, browser pagination, a physically separate device, a real Android software
 keyboard, explicit user-click retry after lost commit (SSE reconciled first),
 provider email receipt and live proxy/replica measurements were not exercised
 in the browser. Server tests cover paging, explicit same-ID retries and queued
@@ -158,8 +158,74 @@ pnpm exec vite --config vite.support-fixture.config.ts --port 3101
 ```
 
 Use only localhost:3101 with this explicit test config. It replaces D1 with
-`/tmp/scous-support-browser.sqlite`, R2 with memory and email with
+`/tmp/scous-support-browser.sqlite`, R2 with an isolated disk-backed object store
+at `/tmp/scous-support-fixture-r2` and email with
 `/tmp/scous-support-fixture-mail.json`. Test accounts are seeded in the fixture
 source, and OTP can be read from the intercepted local test mail. This config
 is never used by normal dev/build or included in the production output.
 Never publish or expose the fixture server. Stop it after testing.
+
+## Saved-chat verification (2026-10-13)
+
+This verification used only isolated SQLite (D1-compatible queries/triggers),
+local private object fixtures, and captured email. It did **not** contact live
+D1/R2, send real mail, migrate a live database, deploy, or push GitHub.
+Transactional conversations, messages, ordering and attachment ownership still
+belong in D1; only image bytes belong in private R2.
+
+### Automated evidence
+
+`node --test tests/support*.test.mjs`: **21 passed**. `pnpm typecheck`: **passed**.
+In addition to the existing concurrency, pagination, read-cursor, two-hub replay,
+session/role revocation, migration and mail-queue checks, new regressions exercise:
+
+- The actual private-file handler: owner/admin access, other-member denial,
+  tombstoned and missing images, admin demotion, session deletion, and private
+  no-store/WebP/nosniff response headers.
+- The actual upload handler: oversized bodies, SVG, forged PNG and undecodable
+  PNG rejection without creating attachment reservations or objects.
+- Failed PUT, successful PUT with a lost response, same-identity retry, and a
+  committed image-only message whose response is lost: one attachment, one
+  message and one mail intent remain.
+- Real Sharp conversion: a 2000-pixel JPEG becomes a 1800-pixel WebP with EXIF
+  and XMP absent.
+- Failed orphan deletion retains a tombstone; delayed upload retry fails
+  explicitly; later cleanup removes the orphan but preserves committed evidence,
+  even when its reservation timestamp is old.
+
+### Browser evidence and boundaries
+
+One focused pass with separate member, admin and other-member sessions confirmed
+bidirectional text and real images, close/reopen, reload, sign-out/sign-in,
+and reconnect recovery of a message sent while the member was offline (once).
+Loading older history displayed all 56 seeded pagination messages exactly once.
+Opening the admin thread cleared its unread badge. Other-member image access
+returned 404; deleting the active admin session ended its stream, cleared its
+transcript and caused image requests to return 401.
+
+After stopping and restarting the fixture server without resetting its database
+or object directory, the existing member session reopened the saved text and
+both committed images. Both image requests returned HTTP 200 with `image/webp`
+(68 and 66 bytes), and both inline images completed loading. Loading and viewing
+the earlier unread history then cleared the member unread badge. The first
+restart attempt was interrupted by the test shell's process lifetime; the same
+browser pass resumed this checkpoint against a persistent background process.
+This demonstrates application restart recovery with durable local fixtures,
+not real R2 or multi-container durability.
+
+A malformed image's Retry control retained the explicit decoding error.
+Transient network upload retry and lost-commit reconciliation are proven by
+the automated server tests above, not a new browser interception test.
+Captured mail and queue tests do not establish external email receipt.
+
+### Live rollout prerequisites
+
+The separately approved Coolify rollout must apply the additive migration,
+verify private R2 access and runtime Sharp compatibility, and check actual
+edge/proxy SSE buffering, reconnect behavior, replica traffic, session revocation,
+and mail dispatch/receipt. Local fixtures cannot establish provider availability,
+physical-device behavior or production capacity.
+
+“End-to-end flow testing” means exercising the member/admin application flow.
+It does **not** mean end-to-end encryption: the application server can read
+messages and images to authorize, store, process and serve them.

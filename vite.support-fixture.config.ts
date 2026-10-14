@@ -13,7 +13,7 @@ export default defineConfig({
           return fileURLToPath(new URL("./tests/fixtures/support-email.ts",import.meta.url));
       },
     }],
-    server:{host:"0.0.0.0",port:3101,strictPort:true,allowedHosts:true},
+    server:{host:"127.0.0.1",port:3101,strictPort:true,allowedHosts:["localhost"]},
   },
   tanstackStart:{server:{entry:"server"}},
 });

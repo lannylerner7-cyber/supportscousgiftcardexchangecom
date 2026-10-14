@@ -37,6 +37,7 @@ const guard=await import("../src/lib/guard.server.ts");
 const {signIn,signOut,changePassword,getAccount}=await import("../src/lib/account.functions.ts");
 const {requestOtp,verifyOtpCode,resetPasswordWithCode}=await import("../src/lib/auth.functions.ts");
 const {registerAccount}=await import("../src/lib/signup.functions.ts");
+const {getRememberedDevices,removeRememberedDevices}=await import("../src/lib/trusted-device.functions.ts");
 async function setup(){
   db?.close();db=new DatabaseSync(":memory:");session={};cookies={};sends=[];configured=true;
   db.exec(readFileSync(new URL("../src/db/schema.sql",import.meta.url),"utf8"));
@@ -48,6 +49,54 @@ async function setup(){
   }
 }
 const login=(remember=true,email="member@example.invalid")=>signIn({data:{email,password,remember}});
+test("login recording has no public callable export for fabricated outcomes",async()=>{
+  await setup();
+  const auth=await import("../src/lib/auth.functions.ts");
+  for(const succeeded of [true,false]){
+    assert.equal(Object.hasOwn(auth,"recordLoginAttempt"),false);
+    assert.throws(()=>auth.recordLoginAttempt({data:{email:"member@example.invalid",succeeded}}),TypeError);
+  }
+  assert.equal(db.prepare("SELECT count(*) n FROM login_attempts").get().n,0);
+  const helper=readFileSync(new URL("../src/lib/login-attempts.server.ts",import.meta.url),"utf8");
+  assert.doesNotMatch(helper,/createServerFn/);
+});
+test("client success flags cannot override password verification or bypass the lockout",async()=>{
+  await setup();
+  const email="member@example.invalid";
+  const start=Date.now();
+  for(let i=1;i<=3;i++){
+    assert.deepEqual(await signIn({data:{email,password:"wrong",succeeded:true}}),{ok:false,error:"bad_credentials"});
+    const rows=db.prepare("SELECT * FROM login_attempts ORDER BY created_at").all();
+    assert.equal(rows.length,i);
+    assert.ok(rows.every(row=>row.succeeded===0));
+    if(i<3) assert.equal(rows.at(-1).locked_until,null);
+  }
+  const locked=db.prepare("SELECT locked_until FROM login_attempts WHERE locked_until IS NOT NULL").get();
+  assert.ok(Date.parse(locked.locked_until)>=start+30*60*1000);
+  assert.ok(Date.parse(locked.locked_until)<=Date.now()+30*60*1000);
+  assert.deepEqual(await signIn({data:{email,password,succeeded:true}}),{ok:false,error:"locked"});
+  assert.equal(db.prepare("SELECT count(*) n FROM login_attempts").get().n,3);
+  assert.equal(db.prepare("SELECT count(*) n FROM sessions").get().n,0);
+});
+test("successful passwords ignore fabricated failure flags and retain the existing failure window",async()=>{
+  await setup();
+  const email="member@example.invalid";
+  assert.equal((await signIn({data:{email,password,succeeded:false}})).ok,true);
+  assert.equal(db.prepare("SELECT succeeded FROM login_attempts").get().succeeded,1);
+  const old=new Date(Date.now()-16*60*1000).toISOString();
+  db.prepare("INSERT INTO login_attempts (id,email,succeeded,locked_until,created_at) VALUES('old',?,0,NULL,?)").run(email,old);
+  await signIn({data:{email,password:"wrong"}});
+  await login();
+  await signIn({data:{email,password:"wrong"}});
+  assert.equal(db.prepare("SELECT count(*) n FROM login_attempts WHERE locked_until IS NOT NULL").get().n,0);
+  await signIn({data:{email,password:"wrong"}});
+  assert.equal(db.prepare("SELECT count(*) n FROM login_attempts WHERE locked_until IS NOT NULL").get().n,1);
+  // Expired failures and lockouts no longer prevent a genuine password login.
+  db.prepare("UPDATE login_attempts SET created_at=?, locked_until=? WHERE succeeded=0")
+    .run(new Date(Date.now()-31*60*1000).toISOString(),new Date(Date.now()-1000).toISOString());
+  assert.equal((await login()).ok,true);
+  assert.equal(sends.length,0);
+});
 async function enroll(){
   assert.equal((await login()).requiresOtp,true);
   assert.equal(await guard.currentUserId(),null);
@@ -84,6 +133,74 @@ test("trusted password login skips email and does not extend device expiry",asyn
   await assert.rejects(()=>requestOtp({data:{email:"member@example.invalid",purpose:"login"}}),/start again/);
   const result=await signIn({data:{email:"member@example.invalid",password:"wrong",remember:true}});
   assert.equal(result.ok,false);
+});
+test("device management requires verified authentication and explicit valid confirmation",async()=>{
+  await setup();
+  await assert.rejects(()=>getRememberedDevices(),/log in/);
+  await assert.rejects(()=>removeRememberedDevices({data:{id:null,confirmed:true}}),/log in/);
+  await login();
+  await assert.rejects(()=>getRememberedDevices(),/log in/);
+  await assert.rejects(()=>removeRememberedDevices({data:{id:null,confirmed:true}}),/log in/);
+  await enroll();
+  await assert.rejects(async()=>removeRememberedDevices({data:{id:null,confirmed:false}}));
+  await assert.rejects(async()=>removeRememberedDevices({data:{id:"invalid",confirmed:true}}));
+});
+test("device listing is owner-only, safe, stable, expiry-filtered and non-renewing",async()=>{
+  await setup();await enroll();
+  const token=cookies.scous_device, hash=await guard.sha256Hex(token);
+  const expiry=db.prepare("SELECT expires_at FROM trusted_devices").get().expires_at;
+  db.prepare("INSERT INTO trusted_devices VALUES('other-hash','other','tag','2099-01-01','now')").run();
+  db.prepare("INSERT INTO trusted_devices VALUES('expired-hash','member','tag','2000-01-01','now')").run();
+  const devices=await getRememberedDevices();
+  assert.equal(devices.length,1);
+  assert.deepEqual(Object.keys(devices[0]).sort(),["createdAt","current","expiresAt","id","label"]);
+  assert.equal(devices[0].current,true);
+  assert.match(devices[0].id,/^[a-f0-9]{32}$/);
+  assert.equal(devices[0].expiresAt,expiry);
+  assert.equal(JSON.stringify(devices).includes(token),false);
+  assert.equal(JSON.stringify(devices).includes(hash),false);
+  assert.deepEqual(await getRememberedDevices(),devices);
+  assert.equal(db.prepare("SELECT expires_at FROM trusted_devices WHERE user_id='member' AND token_hash=?").get(hash).expires_at,expiry);
+});
+test("single removal is owner-scoped, clears current cookie, and forces OTP on replay",async()=>{
+  await setup();await enroll();
+  const token=cookies.scous_device;
+  const [device]=await getRememberedDevices();
+  db.prepare("INSERT INTO trusted_devices VALUES('other-hash','other','tag','2099-01-01','now')").run();
+  db.prepare("INSERT INTO trusted_device_handles VALUES(?,'other-hash')").run("b".repeat(32));
+  await removeRememberedDevices({data:{id:"b".repeat(32),confirmed:true}});
+  assert.equal(db.prepare("SELECT count(*) n FROM trusted_devices").get().n,2);
+  assert.equal(cookies.scous_device,token);
+  await removeRememberedDevices({data:{id:device.id,confirmed:true}});
+  assert.equal(cookies.scous_device,undefined);
+  assert.equal(await guard.currentUserId(),"member"); // Revocation is not session logout.
+  assert.equal(db.prepare("SELECT user_id FROM trusted_devices").get().user_id,"other");
+  assert.deepEqual(await getRememberedDevices(),[]);
+  await removeRememberedDevices({data:{id:device.id,confirmed:true}}); // Idempotent.
+  cookies.scous_device=token;session={};
+  assert.equal((await login()).requiresOtp,true);
+});
+test("remote and all-device removal preserve other owners and force OTP for each revoked cookie",async()=>{
+  await setup();await enroll();
+  const firstToken=cookies.scous_device;
+  const [first]=await getRememberedDevices();
+  cookies={};session={};db.prepare("DELETE FROM otp_codes").run();
+  await enroll();
+  const secondToken=cookies.scous_device;
+  const list=await getRememberedDevices();
+  assert.equal(list.length,2);
+  assert.equal(list.find(d=>d.id===first.id).current,false);
+  await removeRememberedDevices({data:{id:first.id,confirmed:true}});
+  assert.equal(cookies.scous_device,secondToken);
+  assert.equal((await getRememberedDevices()).length,1);
+  db.prepare("INSERT INTO trusted_devices VALUES('other-hash','other','tag','2099-01-01','now')").run();
+  await removeRememberedDevices({data:{id:null,confirmed:true}});
+  assert.deepEqual(await getRememberedDevices(),[]);
+  assert.equal(db.prepare("SELECT user_id FROM trusted_devices").get().user_id,"other");
+  for(const token of [firstToken,secondToken]){
+    cookies.scous_device=token;session={};
+    assert.equal((await login()).requiresOtp,true);
+  }
 });
 test("unchecked login revokes this device; verified unchecked session is browser-only and at most 24 hours",async()=>{
   await setup();await enroll();session={};

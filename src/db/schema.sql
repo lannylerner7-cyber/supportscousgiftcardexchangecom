@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS trusted_devices (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices(user_id);
+CREATE TABLE IF NOT EXISTS trusted_device_handles (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE REFERENCES trusted_devices(token_hash) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS profiles (
   id                    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
