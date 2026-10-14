@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 
 import { BrandWordmark } from "./BrandMark";
+import { SocialLinks } from "./SocialLinks";
 
 const LINKS = [
   { to: "/rates", label: "Rates" },
@@ -97,7 +98,10 @@ export function PublicFooter() {
   return (
     <footer className="border-border/60 mt-24 border-t">
       <div className="text-muted-foreground mx-auto flex max-w-6xl flex-col gap-4 px-4 py-10 text-sm sm:flex-row sm:items-center sm:justify-between">
-        <BrandWordmark className="text-foreground" />
+        <div className="space-y-4">
+          <BrandWordmark className="text-foreground" />
+          <SocialLinks />
+        </div>
         <div className="flex flex-wrap gap-5">
           <Link to="/rates" className="hover:text-foreground">
             Rates
