@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/PasswordInput";
 
 import { Label } from "@/components/ui/label";
-import { loginGate, requestOtp } from "@/lib/auth.functions";
+import { loginGate } from "@/lib/auth.functions";
 import { getAccount, signIn } from "@/lib/account.functions";
 import { useRefreshAccount } from "@/hooks/useAuth";
 import { clearOtpPending, markOtpPending } from "@/lib/otp-gate";
@@ -72,19 +72,13 @@ function Login() {
 
       await refreshAccount();
 
-      // If the code email can't be requested, still go to the code screen;
-      // the member can ask for a new code from there.
-      const otp = attempt.requiresOtp ? await requestOtp({ data: { email, purpose: attempt.otpPurpose } }).catch((err) => {
-        console.error("Login code request failed", err);
-        return null;
-      }) : null;
-
-      // Only the server may decide that this device can skip the login challenge.
+      // Password validation creates only a pending session. Do not send mail until
+      // the member explicitly chooses it on the next screen.
       if (attempt.requiresOtp) {
         markOtpPending(email);
         void navigate({
-          to: "/login/verify",
-          search: { email,support,purpose:attempt.otpPurpose, ...(otp?.ok && otp.expiresAt ? { exp: otp.expiresAt } : {}) },
+          to: "/login/passkey",
+          search: { support },
         });
         return;
       }

@@ -16,6 +16,11 @@ const config:CapacitorConfig={
   android:{allowMixedContent:false,webContentsDebuggingEnabled:false},
   ios:{contentInset:"automatic",limitsNavigationsToAppBoundDomains:true},
   plugins:{
+    CapacitorPasskey:{
+      origin:"https://scousgiftcardexchange.com",
+      domains:["scousgiftcardexchange.com"],
+      autoShim:true,
+    },
     SplashScreen:{launchAutoHide:true,launchShowDuration:1200,backgroundColor:"#0d1220"},
     PushNotifications:{presentationOptions:["badge","sound","alert"]},
   },

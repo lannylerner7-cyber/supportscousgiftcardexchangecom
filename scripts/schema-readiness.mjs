@@ -10,12 +10,14 @@ export const requiredTables = [
   "support_limits", "app_settings", "smtp_settings",
 ];
 export const catalogSql = "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE type IN ('table','index','trigger')";
+requiredTables.push("passkey_credentials", "passkey_challenges", "passkey_sessions", "passkey_limits");
 const quote = name => `"${name.replaceAll('"', '""')}"`;
 const normalize = sql => (sql ?? "").replace(/\bIF NOT EXISTS\s+/gi, "")
   .replace(/\s+/g, " ").trim().replace(/;$/, "");
 const signature = (rows, fields) => JSON.stringify(rows.map(row => fields.map(k => row[k] ?? null)));
 
 function guidance(table) {
+  if (table.startsWith("passkey_")) return "src/db/passkeys.sql (apply before enabling PASSKEY_ENABLED)";
   if (["session_security", "trusted_devices"].includes(table)) return "src/db/remember-devices.sql";
   if (table.startsWith("support_")) return "src/db/schema.sql SUPPORT_CHAT_START..SUPPORT_CHAT_END (see SUPPORT-CHAT.md)";
   if (table === "trusted_device_handles") return "src/db/schema.sql trusted_device_handles (not included in remember-devices.sql)";
